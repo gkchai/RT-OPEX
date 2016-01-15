@@ -14,7 +14,7 @@ if __name__ == '__main__':
     objs = {}
     stats = {}
     for sched in sched_range:
-        objs[sched] = utils.read_pickle('dump/gstat_prior%d_sched%s_nant%d_nproc%d'%(prior,sched, nants, nprocs))
+        objs[sched] = utils.read_pickle('../dump/gstat_prior%d_sched%s_nant%d_nproc%d'%(prior,sched, nants, nprocs))
         stats[sched] = astat(objs[sched].proc['slack'])
 
 

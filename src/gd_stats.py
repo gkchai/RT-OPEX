@@ -74,14 +74,14 @@ if __name__ == '__main__':
 
                 filenames_t, filenames_p = [],[]
                 for idx, nant in enumerate(range(nants)):
-                    fname = 'log/trans%d_prior%d_sched%s_nant%d_nproc%d.log'%(idx, prior,sched, nants, nprocs)
+                    fname = '../log/trans%d_prior%d_sched%s_nant%d_nproc%d.log'%(idx, prior,sched, nants, nprocs)
                     if not os.path.isfile(fname):
                         print 'File %s does not exist'%fname
                         raise ValueError
                     else:
                         filenames_t.append(fname)
                 for idx, nproc in enumerate(range(nprocs)):
-                    fname = 'log/proc%d_prior%d_sched%s_nant%d_nproc%d.log'%(idx, prior,sched, nants, nprocs)
+                    fname = '../log/proc%d_prior%d_sched%s_nant%d_nproc%d.log'%(idx, prior,sched, nants, nprocs)
                     if not os.path.isfile(fname):
                         print 'File %s does not exist'%fname
                         raise ValueError
@@ -92,5 +92,5 @@ if __name__ == '__main__':
                 proc =  read_log_timing(filenames_p)
 
                 gs = gstat(config, trans, proc)
-                utils.write_pickle(gs, 'dump/gstat_prior%d_sched%s_nant%d_nproc%d'%(prior,sched,nants, nprocs))
+                utils.write_pickle(gs, '../dump/gstat_prior%d_sched%s_nant%d_nproc%d'%(prior,sched,nants, nprocs))
 

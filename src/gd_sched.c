@@ -333,7 +333,7 @@ int main(){
         trans_tdata[i].deadline = usec_to_timespec(500);
         trans_tdata[i].period = usec_to_timespec(1000);
 
-        sprintf(tmp_str, "log/trans%d_prior%d_sched%s_nant%d_nproc%d.log", i, priority,
+        sprintf(tmp_str, "../log/trans%d_prior%d_sched%s_nant%d_nproc%d.log", i, priority,
         tmp_str_a, trans_nthreads, proc_nthreads);
         trans_tdata[i].log_handler = fopen(tmp_str, "w");
         trans_tdata[i].sched_prio = priority;
@@ -349,7 +349,7 @@ int main(){
         proc_tdata[i].deadline = usec_to_timespec(2000);
         proc_tdata[i].period = usec_to_timespec(3000);
 
-        sprintf(tmp_str, "log/proc%d_prior%d_sched%s_nant%d_nproc%d.log", i, priority,
+        sprintf(tmp_str, "../log/proc%d_prior%d_sched%s_nant%d_nproc%d.log", i, priority,
         tmp_str_a, trans_nthreads, proc_nthreads);
         proc_tdata[i].log_handler = fopen(tmp_str, "w");
         proc_tdata[i].sched_prio = priority;
