@@ -1,2 +1,5 @@
-log
-dump 
+log/
+dump/
+._*
+*.pyc
+ 
