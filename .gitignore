@@ -3,4 +3,5 @@ dump/
 ._*
 *.pyc
 *.gch
-*.o 
+*.o
+src/gd 
