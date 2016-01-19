@@ -74,9 +74,6 @@ void* trans_main(void* arg){
     thread_common(pthread_self(), tdata);
 
 
-    /* if we know the duration we can calculate how many periods we will
-     * do at most, and the log to memory, instead of logging to file.
-     */
     gd_timing_meta_t *timings;
     long duration_usec = (tdata->duration * 1e6);
     int nperiods = (int) ceil( duration_usec /
@@ -182,12 +179,6 @@ void* proc_main(void* arg){
 
 
     printf("Starting proc thread %d nperiods %d %lu\n", id, nperiods, timespec_to_usec(&t_offset));
-    // struct timespec t_now;
-    // clock_gettime(CLOCK_MONOTONIC, &t_now);
-
-    // if (timespec_lower(&t_now, &t_next)){
-    //     clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
-    // }
 
 
     while(running && (period < nperiods)){
@@ -260,9 +251,8 @@ shutdown(int sig)
     running = 0;
 
     for (i=0; i<3; i++){
-        // pthread_mutex_destroy(&subframe_mutex[i]);
-        // pthread_cond_destroy(&subframe_cond[i]);
-        pthread_cond_signal(&subframe_cond[i]);
+        pthread_mutex_destroy(&subframe_mutex[i]);
+        pthread_cond_destroy(&subframe_cond[i]);
     }
 
     for (i = 0; i < trans_nthreads; i++)
@@ -291,7 +281,7 @@ int main(){
     int num_nodes = 4;
     int host_id = 210;
     int num_samples = 40*1e6*1e-3; // samples in subframe = (samples/sec)*1ms
-    int duration = 100; //secs
+    int duration = 10; //secs
     int priority = 99;
     int sched = SCHED_OTHER;
     policy_to_string(sched, tmp_str_a);
