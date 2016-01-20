@@ -92,7 +92,7 @@ void* offload_main(void* arg){
     /*
     gd_timing_meta_t *timings;
     long duration_usec = (tdata->duration * 1e6);
-    
+
     timings = (gd_timing_meta_t*) malloc ( nperiods * sizeof(gd_timing_meta_t));
     gd_timing_meta_t* timing;
 
@@ -103,7 +103,7 @@ void* offload_main(void* arg){
     unsigned long abs_period_start = timespec_to_usec(&tdata->main_start);
     */
 	int period = 0;
-    
+
 
     //main loop
     //wait to wake up
@@ -158,8 +158,8 @@ void* offload_main(void* arg){
         if (timespec_lower(&t_now, &t_next)){
             // sleep for remaining time
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
-        
-	
+
+
 	}
 	*/
 
@@ -220,7 +220,7 @@ void* trans_main(void* arg){
 		} else {
 	        gd_trans_read(tdata->conn_desc);
 		}
-   
+
         pthread_mutex_lock(&subframe_mutex[period%3]);
         subframe_avail[period%3]++;
 
@@ -320,14 +320,14 @@ void* proc_main(void* arg){
 	//Processing thread is going to sleep; wake up the offloading thread
 	//an assumption here is that the offloading thread is going to finish before
 	//processing thread wakes up again
-	
+
 		printf ("proc thread: %d sleeps\n",id);
-	
+
 		pthread_mutex_lock(&offload_mutex[id]);
 		pthread_cond_signal(&offload_cond[id]);
 		pthread_mutex_unlock(&offload_mutex[id]);
 
-	
+
         pthread_mutex_lock(&subframe_mutex[id]);
 
         // printf("thread [%d] checking trans thread ...\n", id);
@@ -416,7 +416,7 @@ int main(){
 
     int i,j;
     int thread_ret;
-    char tmp_str[100], tmp_str_a[100];
+    char tmp_str[100], tmp_str_a[100], exp_str[100];
 
     // options
     int node_ids[4] =  {0, 1, 2, 3};
@@ -429,7 +429,7 @@ int main(){
     int priority = 99;
     double complex *buffer = (double complex*) malloc(num_samples*sizeof(double complex));
     int sched = SCHED_FIFO;
-
+    sprintf(exp_str, "plain");
 
     policy_to_string(sched, tmp_str_a);
 
@@ -483,8 +483,8 @@ int main(){
         trans_tdata[i].deadline = usec_to_timespec(500);
         trans_tdata[i].period = usec_to_timespec(1000);
 
-        sprintf(tmp_str, "../log/trans%d_prior%d_sched%s_nant%d_nproc%d.log", i, priority,
-                                    tmp_str_a, trans_nthreads, proc_nthreads);
+        sprintf(tmp_str, "../log/exp%s_samp%d_trans%d_prior%d_sched%s_nant%d_nproc%d.log",
+            exp_str, num_samples, i, priority, tmp_str_a, trans_nthreads, proc_nthreads);
         trans_tdata[i].log_handler = fopen(tmp_str, "w");
         trans_tdata[i].sched_prio = priority;
         trans_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
@@ -507,8 +507,8 @@ int main(){
         proc_tdata[i].deadline = usec_to_timespec(2000);
         proc_tdata[i].period = usec_to_timespec(3000);
 
-        sprintf(tmp_str, "../log/proc%d_prior%d_sched%s_nant%d_nproc%d.log", i, priority,
-        tmp_str_a, trans_nthreads, proc_nthreads);
+        sprintf(tmp_str, "../log/exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d.log",
+            exp_str, num_samples, i, priority,tmp_str_a, trans_nthreads, proc_nthreads);
         proc_tdata[i].log_handler = fopen(tmp_str, "w");
         proc_tdata[i].sched_prio = priority;
         proc_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
@@ -524,8 +524,8 @@ int main(){
         offload_tdata[i].period = usec_to_timespec(3000);
 
 		//we can assume offloading thread count is always equal to proc thread count?
-        sprintf(tmp_str, "../log/offload%d_prior%d_sched%s_nant%d_nproc%d_noffl%d.log", i, priority,
-        tmp_str_a, trans_nthreads, proc_nthreads,offload_nthreads);
+        sprintf(tmp_str, "../log/exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d_noffl%d.log",
+            exp_str, num_samples, i, priority, tmp_str_a, trans_nthreads, proc_nthreads,offload_nthreads);
         //offload_tdata[i].log_handler = fopen(tmp_str, "w"); not openning at the time
         offload_tdata[i].sched_prio = priority;
         offload_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
