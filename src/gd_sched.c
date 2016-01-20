@@ -105,7 +105,7 @@ void* trans_main(void* arg){
         subframe_avail[period%3]++;
 
 	// hanging fix -- if trans misses a proc, reset the subframe available counter
-       	if (subframe_avail[period%3] ==trans_nthreads) {
+       	if (subframe_avail[period%3] == (trans_nthreads+1)) {
                subframe_avail[period%3] = 1;
 	}
 
