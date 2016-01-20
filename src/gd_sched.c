@@ -14,6 +14,7 @@ static pthread_cond_t subframe_cond[3];
 
 static pthread_mutex_t offload_mutex[3];
 static pthread_cond_t offload_cond[3];
+static int *proc_idle; //indicates if processor is idle
 
 static int subframe_avail[3];
 
@@ -22,7 +23,7 @@ static int running;
 const static int debug_trans = 1;
 gd_rng_buff_t *rng_buff;
 
-
+static int offload_sleep[3];
 void thread_common(pthread_t th, gd_thread_data_t *tdata){
 
     int ret;
@@ -88,7 +89,7 @@ void* offload_main(void* arg){
     long duration_usec = (tdata->duration * 1e6);
     int nperiods = (int) floor(duration_usec /
 	               (double) timespec_to_usec(&tdata->period));
-	nperiods-=4;// probably one period less than the processing thread to avoid hanging threads.
+	nperiods-=10;// probably one period less than the processing thread to avoid hanging threads.
     /*
     gd_timing_meta_t *timings;
     long duration_usec = (tdata->duration * 1e6);
@@ -120,15 +121,35 @@ void* offload_main(void* arg){
 
         clock_gettime(CLOCK_MONOTONIC, &trans_start);
 	*/
-		printf ("offloading thread: %d sleeeeps\n",ind);
         pthread_mutex_lock(&offload_mutex[ind]);
-		pthread_cond_wait(&offload_cond[ind], &offload_mutex[ind]);
+     	printf ("offloading thread: %d is sleeping, proc thread is idle? %d\n",ind,proc_idle[ind]);
+		//while processing thread not idle, keep on waiting
+		while (proc_idle[ind]==0) {
+			printf ("offloadiing thread: %d sleeeeps, proc thread is idle? %d\n",ind,proc_idle[ind]);
+			offload_sleep[ind]=1;
+			pthread_cond_wait(&offload_cond[ind], &offload_mutex[ind]);
+			offload_sleep[ind]=0;
+			printf ("offloading thread: %d WAKES UP, proc thread is idle? %d\n",ind,proc_idle[ind]);
+		}
+
+		int j;
+		for (j=0; j<5000;j++){}
+		proc_idle[ind]=0;
 		pthread_mutex_unlock(&offload_mutex[ind]);
-		printf ("offloading thread: %d WAKES UP\n",ind);
 	//perform processing (offloaded task)
 
-        int j;
-        for(j=0; j <5000; j++){}
+
+//        pthread_mutex_lock(&offload_mutex[ind]);
+//		if (proc_idle[ind]==3) {
+//			break;
+//		}
+//		pthread_mutex_unlock(&offload_mutex[ind]);
+
+
+
+
+
+
 
         //clock_gettime(CLOCK_MONOTONIC, &trans_end);
         /*****************************/
@@ -163,7 +184,7 @@ void* offload_main(void* arg){
 	}
 	*/
 
-        period ++;
+	      period ++;
     }
 
     //clock_gettime(CLOCK_MONOTONIC, &t_temp);
@@ -324,6 +345,8 @@ void* proc_main(void* arg){
 		printf ("proc thread: %d sleeps\n",id);
 
 		pthread_mutex_lock(&offload_mutex[id]);
+		printf ("offloading thread: %d sleeping %d \n",id,offload_sleep[id]);
+		proc_idle[id]=1; //now the processing thread is idle
 		pthread_cond_signal(&offload_cond[id]);
 		pthread_mutex_unlock(&offload_mutex[id]);
 
@@ -334,7 +357,13 @@ void* proc_main(void* arg){
         while (!(subframe_avail[id] == trans_nthreads) && running){
             pthread_cond_wait(&subframe_cond[id], &subframe_mutex[id]);
         }
-        printf("thread [%d] got it!\n", id);
+//        printf("thread [%d] got it!\n", id);
+
+		//idle is over ....
+		pthread_mutex_lock(&offload_mutex[id]);
+		proc_idle[id]=0;
+		pthread_mutex_unlock(&offload_mutex[id]);
+
 
         /****** do LTE processing *****/
         clock_gettime(CLOCK_MONOTONIC, &proc_start);
@@ -342,11 +371,13 @@ void* proc_main(void* arg){
         for(j=0; j <100000; j++){}
         clock_gettime(CLOCK_MONOTONIC, &proc_end);
         /*****************************/
-        printf("proc thread [%d] just finished its processing\n", id);
+//        printf("proc thread [%d] just finished its processing\n", id);
 
         // consume subframe
         subframe_avail[id] = 0;
         pthread_mutex_unlock(&subframe_mutex[id]);
+
+
 
         timing = &timings[period];
         timing->ind = id;
@@ -382,6 +413,12 @@ void* proc_main(void* arg){
     }
     fclose(tdata->log_handler);
     printf("Exit proc thread %d\n",id);
+
+	pthread_mutex_lock(&offload_mutex[id]);
+	proc_idle[id]=3; //thread finished
+	pthread_mutex_unlock(&offload_mutex[id]);
+
+
     pthread_exit(NULL);
 }
 
@@ -460,6 +497,7 @@ int main(){
     gd_thread_data_t *offload_tdata;
     offload_tdata = malloc(offload_nthreads*sizeof(gd_thread_data_t));
 
+	proc_idle = malloc (proc_nthreads*sizeof(int));
 
     for (i=0; i<3; i++){
         subframe_avail[i] = 0;
@@ -513,6 +551,8 @@ int main(){
         proc_tdata[i].sched_prio = priority;
         proc_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
         CPU_SET( 8+2*i, proc_tdata[i].cpuset);
+
+		proc_idle[i] = 0;
     }
 
     for(i= 0; i < offload_nthreads; i++){
