@@ -96,8 +96,10 @@ void* trans_main(void* arg){
 
         clock_gettime(CLOCK_MONOTONIC, &trans_start);
         /******* Main transport ******/
-        int j;
-        for(j=0; j <50000; j++){}
+        // int j;
+        // for(j=0; j <50000; j++){}
+
+        gd_trans_read(tdata->conn_desc);
 
         pthread_mutex_lock(&subframe_mutex[period%3]);
         subframe_avail[period%3]++;
@@ -277,13 +279,17 @@ int main(){
 
     // options
     int node_ids[4] =  {0, 1, 2, 3};
-    // int node_ids[16] =  {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    // int node_ids[16] =  {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
     int num_nodes = 4;
-    int host_id = 210;
-    int num_samples = 40*1e6*1e-3; // samples in subframe = (samples/sec)*1ms
+    int node_socks[num_nodes];
+    int host_id = 200;
+    int num_samples = 1*1e6*1e-3; // samples in subframe = (samples/sec)*1ms
     int duration = 10; //secs
     int priority = 99;
-    int sched = SCHED_OTHER;
+    double complex *buffer = (double complex*) malloc(num_samples*sizeof(double complex));
+    int sched = SCHED_FIFO;
+
+
     policy_to_string(sched, tmp_str_a);
 
 
@@ -315,6 +321,9 @@ int main(){
     signal(SIGINT, shutdown);
 
     running = 1;
+    gd_trans_initialize(node_socks, num_nodes);
+    gd_trans_trigger();
+
     for(i= 0; i < trans_nthreads; i++){
 
         trans_tdata[i].ind = i;
@@ -324,11 +333,19 @@ int main(){
         trans_tdata[i].period = usec_to_timespec(1000);
 
         sprintf(tmp_str, "../log/trans%d_prior%d_sched%s_nant%d_nproc%d.log", i, priority,
-        tmp_str_a, trans_nthreads, proc_nthreads);
+                                    tmp_str_a, trans_nthreads, proc_nthreads);
         trans_tdata[i].log_handler = fopen(tmp_str, "w");
         trans_tdata[i].sched_prio = priority;
         trans_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
         CPU_SET( 5, trans_tdata[i].cpuset);
+
+        trans_tdata[i].conn_desc.node_id = i;
+        trans_tdata[i].conn_desc.node_sock = node_socks[i];
+        trans_tdata[i].conn_desc.host_id = host_id;
+        trans_tdata[i].conn_desc.num_samples = num_samples;
+        trans_tdata[i].conn_desc.start_sample = 0;
+        trans_tdata[i].conn_desc.buffer = buffer;
+        trans_tdata[i].conn_desc.buffer_id = 1;
     }
 
     for(i= 0; i < proc_nthreads; i++){

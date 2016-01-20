@@ -9,10 +9,12 @@
 
 
 typedef struct _gd_conn_desc_t{
-int* node_ids;
-int num_nodes;
+int node_id;
+int node_sock;
 int host_id;
+int buffer_id;
 int num_samples;
+int start_sample;
 double complex* buffer;
 
 } gd_conn_desc_t;
@@ -41,6 +43,7 @@ typedef struct _gd_thread_data_t {
     FILE *log_handler;
     int sched_policy;
     int sched_prio;
+    gd_conn_desc_t conn_desc;
 
 } gd_thread_data_t;
 
