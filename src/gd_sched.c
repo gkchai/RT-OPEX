@@ -103,6 +103,12 @@ void* trans_main(void* arg){
 
         pthread_mutex_lock(&subframe_mutex[period%3]);
         subframe_avail[period%3]++;
+
+	// hanging fix -- if trans misses a proc, reset the subframe available counter
+       	if (subframe_avail[period%3] ==trans_nthreads) {
+               subframe_avail[period%3] = 1;
+	}
+
         pthread_cond_signal(&subframe_cond[period%3]);
         pthread_mutex_unlock(&subframe_mutex[period%3]);
 
@@ -171,6 +177,9 @@ void* proc_main(void* arg){
     long duration_usec = (tdata->duration * 1e6);
     int nperiods = (int) floor(duration_usec /
             (double) timespec_to_usec(&tdata->period));
+
+    //nperiods reduce a little to prevents trans finishing before proc; ugly fix
+    nperiod-=3;
 
     timings = (gd_timing_meta_t*) malloc ( nperiods * sizeof(gd_timing_meta_t));
     gd_timing_meta_t *timing;
