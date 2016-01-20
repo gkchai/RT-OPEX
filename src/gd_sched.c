@@ -179,7 +179,7 @@ void* proc_main(void* arg){
             (double) timespec_to_usec(&tdata->period));
 
     //nperiods reduce a little to prevents trans finishing before proc; ugly fix
-    nperiod-=3;
+    nperiods-=3;
 
     timings = (gd_timing_meta_t*) malloc ( nperiods * sizeof(gd_timing_meta_t));
     gd_timing_meta_t *timing;
