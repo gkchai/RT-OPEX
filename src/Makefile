@@ -1,6 +1,6 @@
 CC = @gcc
 
-CFLAGS = -Wall -g
+CFLAGS = -Wall -g -w
 LIBS=-fopenmp -pthread -lm
 
 
