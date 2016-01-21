@@ -379,7 +379,7 @@ void* proc_main(void* arg){
 	//an assumption here is that the offloading thread is going to finish before
 	//processing thread wakes up again
 
-		printf ("proc thread: %d sleeps\n",id);
+//		printf ("proc thread: %d sleeps\n",id);
 
 		pthread_mutex_lock(&offload_mutex[id]);
 //		printf ("offloading thread: %d sleeping %d \n",id,offload_sleep[id]);
