@@ -617,8 +617,8 @@ int main(){
         offload_tdata[i].period = usec_to_timespec(3000);
 
 		//we can assume offloading thread count is always equal to proc thread count?
-        sprintf(tmp_str, "../log/exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d_noffl%d.log",
-            exp_str, num_samples, i, priority, tmp_str_a, trans_nthreads, proc_nthreads,offload_nthreads);
+        sprintf(tmp_str, "../log/exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d.log",
+            exp_str, num_samples, i, priority, tmp_str_a, trans_nthreads, proc_nthreads);
         //offload_tdata[i].log_handler = fopen(tmp_str, "w"); not openning at the time
         offload_tdata[i].sched_prio = priority;
         offload_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
