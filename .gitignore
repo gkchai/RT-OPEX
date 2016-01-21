@@ -5,4 +5,5 @@ dump/
 *.gch
 *.o
 src/gd
-*.swp 
+*.swp
+*.swo 
