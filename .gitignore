@@ -4,4 +4,5 @@ dump/
 *.pyc
 *.gch
 *.o
-src/gd 
+src/gd
+*.swp 
