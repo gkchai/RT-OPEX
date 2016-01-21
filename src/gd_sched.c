@@ -12,12 +12,14 @@ static int offload_nthreads;
 static pthread_mutex_t subframe_mutex[3];
 static pthread_cond_t subframe_cond[3];
 
-static pthread_mutex_t offload_mutex[3];
-static pthread_cond_t offload_cond[3];
+static pthread_mutex_t *offload_mutex;
+static pthread_cond_t *offload_cond;
 
 
-static pthread_mutex_t start_offload_mutex[3];
-static pthread_cond_t start_offload_cond[3];
+static pthread_mutex_t *task_ready_mutex;
+static pthread_cond_t *task_read_cond; //busy wait till offloading thread has task ready
+static int * task_ready_flag; // indicates if task is ready for offloading
+//0 not ready; 1 task ready; 2 woken up by transport thread -- idling is over 
 
 
 static int *proc_idle; //indicates if processor is idle
