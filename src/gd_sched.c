@@ -393,6 +393,18 @@ void* trans_main(void* arg){
     }
     fclose(tdata->log_handler);
     printf("Exit trans thread %d\n", ind);
+
+
+	for (i=0;i<proc_nthreads;i++) {
+			pthread_mutex_lock(&subframe_mutex[i]);
+			subframe_avail[i]=-1;
+			pthread_cond_signal(&subframe_cond[i]);
+			pthread_mutex_unlock(&subframe_mutex[i]);
+	}
+
+
+
+
     pthread_exit(NULL);
 }
 
@@ -437,7 +449,7 @@ void* proc_main(void* arg){
 	//processing thread wakes up again
 
 //		printf ("proc thread: %d sleeps\n",id);
-
+		int terminate_flag = 0;
 
 		pthread_mutex_lock(&task_ready_mutex[id]);
 		printf("setting the ready flag to 0 for thread[%d]\n",id);
@@ -456,6 +468,10 @@ void* proc_main(void* arg){
         while (!(subframe_avail[id] == trans_nthreads) && running){
             pthread_cond_wait(&subframe_cond[id], &subframe_mutex[id]);
         }
+
+		if (subframe_avail[id]==-1){
+			terminate_flag = 1;
+		}
 //        printf("thread [%d] got it!\n", id);
 
 		//idle is over ....
@@ -504,7 +520,10 @@ void* proc_main(void* arg){
         subframe_avail[id] = 0;
         pthread_mutex_unlock(&subframe_mutex[id]);
 
-
+		if (terminate_flag) {
+			printf("proc thread[%d] recevied orders to terminate\n",id);
+			break;
+		}
 
         timing = &timings[period];
         timing->ind = id;
@@ -749,7 +768,9 @@ int main(){
             perror("Cannot start thread");
             exit(-1);
         }
-    }
+	}
+
+	nanosleep((const struct timespec[]){{0, 1000000000L}}, NULL);
 
     printf("Starting proc threads\n");
 
