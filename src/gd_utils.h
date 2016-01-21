@@ -1,5 +1,5 @@
-#ifndef _TIMESPEC_UTILS_H_
-#define _TIMESPEC_UTILS_H_
+#ifndef _GD_UTILS_H_
+#define _GD_UTILS_H_
 
 #include <time.h>
 #include <math.h>

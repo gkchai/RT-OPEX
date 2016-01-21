@@ -17,3 +17,4 @@
 #include "gd_types.h"
 #include "gd_utils.h"
 #include "gd_trans.h"
+#include "gd_proc.h"
