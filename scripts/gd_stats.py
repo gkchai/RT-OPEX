@@ -27,10 +27,11 @@ class astat:
 
 # gd stats
 class gstat:
-    def __init__(self, config, trans_arr, proc_arr):
+    def __init__(self, config, trans_arr, proc_arr, offload_arr):
         self.config = config
         self.trans = trans_arr
         self.proc = proc_arr
+        self.offload = offload_arr
 
 
 def read_log_timing(filenames):
@@ -66,13 +67,15 @@ if __name__ == '__main__':
 
     duration = 100 #secs
 
-
     for exp in exp_range:
         for samples in samples_range:
             for nants in nant_range:
                 for prior in prior_range:
                     for sched in sched_range:
-                        config  = {'prior': prior,
+                        config  = {
+                                    'exp': exp,
+                                    'samples': samples,
+                                    'prior': prior,
                                     'sched' : sched,
                                     'duration': duration,
                                     'nant': nants,
@@ -89,16 +92,21 @@ if __name__ == '__main__':
                                 filenames_t.append(fname)
                         for idx, nproc in enumerate(range(nprocs)):
                             fname = '../log/exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d.log'%(exp, samples, idx prior, sched, nants, nprocs)
-                            if not os.path.isfile(fname):
+
+                            fname_o = '../log/exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d.log'%(exp, samples, idx prior, sched, nants, nprocs)
+
+
+                            if (not os.path.isfile(fname)) or (not os.path.isfile(fname_o)):
                                 print 'File %s does not exist'%fname
                                 raise ValueError
                             else:
                                 filenames_p.append(fname)
-
+                                filenames_o.append(fname_o)
 
 
                         trans =  read_log_timing(filenames_t)
                         proc =  read_log_timing(filenames_p)
+                        offload = read_log_timing(filenames_o)
 
                         gs = gstat(config, trans, proc)
                         utils.write_pickle(gs, '../dump/gstat_exp%s_samp%d_prior%d_sched%s_nant%d_nproc%d'%(exp, samples, prior,sched,nants, nprocs))
