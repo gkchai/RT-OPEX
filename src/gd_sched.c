@@ -30,7 +30,7 @@ static int subframe_avail[3];
 
 static int running;
 
-const static int debug_trans = 0;
+const static int debug_trans = 1;
 gd_rng_buff_t *rng_buff;
 
 static int offload_sleep[3];
@@ -119,18 +119,19 @@ void* offload_main(void* arg){
 		int terminate_flag = 0;
         pthread_mutex_lock(&offload_mutex[ind]);
 
-        log_debug("offloading thread: %d is sleeping, proc thread is idle? %d\n",ind,proc_idle[ind]);
+        log_debug("offloading thread[%d] is sleeping, proc thread is idle? %d\n",ind,proc_idle[ind]);
 		//while processing thread not idle, keep on waiting
 		while (proc_trigger[ind]==1) {
 			// printf ("offloadiing thread: %d sleeeeps, proc thread is idle? %d\n",ind,proc_idle[ind]);
 			offload_sleep[ind]=1;
 			pthread_cond_wait(&offload_cond[ind], &offload_mutex[ind]);
-			offload_sleep[ind]=0;
 			if (proc_idle[ind]==3){
 				terminate_flag = 1;
 			}
-			// printf ("offloading thread: %d WAKES UP, proc thread is idle? %d\n",ind,proc_idle[ind]);
+			log_debug ("offloading thread[%d] WAKES UP, proc thread is idle? %d\n",ind,proc_idle[ind]);
+			offload_sleep[ind]=0;
 			proc_trigger[ind] = 0;
+			proc_idle[ind] = 1;
 		}
 		pthread_mutex_unlock(&offload_mutex[ind]);
 
@@ -155,7 +156,7 @@ void* offload_main(void* arg){
 		}
 		if (task_ready_flag[ind]==1){
 			my_offload_flag = 1;
-			log_debug("let's do some offloading :) thread[%d]",ind);
+			log_debug("let's do some offloading :) thread[%d], is loc proc idle[%d]?",ind,proc_idle[ind]);
 		}
 
 		if (task_ready_flag[ind]==2){
@@ -184,7 +185,7 @@ void* offload_main(void* arg){
 
 
         // work only if task ready == 1
-        if (task_ready_flag[ind]==1){
+        if (my_offload_flag==1){
 
             int flag = 0;
             int j;
@@ -194,7 +195,7 @@ void* offload_main(void* arg){
 
                     //bug-fix: exit should be atomic
                     if(proc_idle[ind]==0) { // this one is not locked
-        				//printf("had to drop the offloaded task -- sadly");
+        				log_debug("had to drop the offloaded task -- sadly");
                         proc_idle[ind]=0;
                         pthread_mutex_lock(&task_ready_mutex[ind]);
                         task_ready_flag[ind]=0; //same as above :)
@@ -501,6 +502,9 @@ void* proc_main(void* arg){
                 pthread_cond_wait(&offload_cond[id], &offload_mutex[id]);
             }
 //            proc_idle[id]=0;
+//
+            log_debug("proc thread[%d] is ready to process its data\n",id);
+//
             pthread_mutex_unlock(&offload_mutex[id]);
 
         }
@@ -520,7 +524,7 @@ void* proc_main(void* arg){
 
 		int offload_ind = (id+1)%offload_nthreads;
 
-        for(j=0; j <500000; j++){
+        for(j=0; j <100000; j++){
 			//here, we might want to check if offloading thread is running
 			if (j == 1000) {//just an initial condition for the check if offloading thread is NOT sleeping
 				pthread_mutex_lock(&offload_mutex[offload_ind]);
