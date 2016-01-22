@@ -275,7 +275,6 @@ void* offload_main(void* arg){
         period ++;
     }
 
-<<<<<<< HEAD
     pthread_mutex_lock(&offload_mutex[ind]);
     pthread_cond_signal(&offload_cond[ind]);
     pthread_mutex_unlock(&offload_mutex[ind]);
