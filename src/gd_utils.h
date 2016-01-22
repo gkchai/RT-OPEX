@@ -10,10 +10,10 @@
 #include "gd_types.h"
 
 #ifndef LOG_PREFIX
-#define LOG_PREFIX "[gd] "
+#define LOG_PREFIX "[gd_sched] "
 #endif
 #ifndef LOG_LEVEL
-#define LOG_LEVEL 50
+#define LOG_LEVEL 100
 #endif
 
 #define LOG_LEVEL_DEBUG 100
