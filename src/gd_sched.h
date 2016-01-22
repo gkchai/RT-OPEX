@@ -1,4 +1,7 @@
 #define _GNU_SOURCE
+#ifndef _GD_SCHED_H_
+#define _GD_SCHED_H_
+
 
 #include <sched.h>
 #include <stdlib.h>
@@ -17,4 +20,6 @@
 #include "gd_types.h"
 #include "gd_utils.h"
 #include "gd_trans.h"
-#include "gd_proc.h"
+// #include "gd_proc.h"
+
+#endif

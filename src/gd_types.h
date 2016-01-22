@@ -5,7 +5,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <sched.h>
-#include <complex.h>
+#include "complex.h"
 
 
 typedef struct _gd_conn_desc_t{
@@ -37,7 +37,6 @@ typedef struct _gd_thread_data_t {
     int duration;
     cpu_set_t *cpuset;
     char *cpuset_str;
-    struct timespec exec;
     struct timespec period, deadline;
     struct timespec main_start;
     FILE *log_handler;
@@ -46,7 +45,6 @@ typedef struct _gd_thread_data_t {
     gd_conn_desc_t conn_desc;
 
 } gd_thread_data_t;
-
 
 
 typedef struct _gd_timing_meta_t{
@@ -65,7 +63,27 @@ typedef struct _gd_timing_meta_t{
     unsigned long period;
     long slack;
 
-
 } gd_timing_meta_t;
+
+typedef struct _gd_off_timing_meta_t{
+    int ind;
+    unsigned long abs_period_time;
+    unsigned long abs_start_time;
+    unsigned long abs_end_time;
+    unsigned long abs_task_start_time;
+    unsigned long abs_task_end_time;
+
+    unsigned long rel_period_time;
+    unsigned long rel_start_time;
+    unsigned long rel_end_time;
+    unsigned long rel_task_start_time;
+    unsigned long rel_task_end_time;
+
+    unsigned long total_duration;
+    unsigned long task_duration;
+    unsigned long period;
+
+} gd_off_timing_meta_t;
+
 
 #endif

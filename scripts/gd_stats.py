@@ -43,9 +43,21 @@ def read_log_timing(filenames):
             'abs_start', 'abs_end', 'rel_period', 'rel_start', 'rel_end', 'duration', 'slack'
             ), 'formats':(np.int32,np.int32,np.int32,np.int32,np.int32,np.int32,np.int32,np.int32,np.int32,np.int32)},
             delimiter='\t\t', skiprows=300))
-        # arrs.append(np.loadtxt(fname))
-
     return np.concatenate(arrs)
+
+def read_off_log_timing(filenames):
+
+    arrs = []
+    for fname in filenames:
+        print 'reading file %s'%fname
+        arrs.append(np.loadtxt(fname, dtype={'names':('id', 'rel_period', 'rel_start',
+            'rel_end', 'rel_task_start', 'rel_task_end', 'total_duration', 'task_duration'
+            ), 'formats':(np.int32,np.int32,np.int32,np.int32,np.int32,np.int32,np.int32,np.int32)},
+            delimiter='\t\t', skiprows=300))
+    return np.concatenate(arrs)
+
+
+
 
 def deadline_miss(obj):
     return (len(obj.proc[:, 'slack'] > 0)/len(obj.proc_time[:, 'slack']))
@@ -106,7 +118,7 @@ if __name__ == '__main__':
 
                         trans =  read_log_timing(filenames_t)
                         proc =  read_log_timing(filenames_p)
-                        offload = read_log_timing(filenames_o)
+                        offload = read_off_log_timing(filenames_o)
 
                         gs = gstat(config, trans, proc)
                         utils.write_pickle(gs, '../dump/gstat_exp%s_samp%d_prior%d_sched%s_nant%d_nproc%d'%(exp, samples, prior,sched,nants, nprocs))
