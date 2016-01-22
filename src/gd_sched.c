@@ -207,9 +207,6 @@ void* offload_main(void* arg){
     		}
 
 
-            // state 1
-
-            // pthread_mutex_lock(&offload_mutex[ind]);
     		if (flag==0) {
                 clock_gettime(CLOCK_MONOTONIC, &off_task_end);
 
@@ -249,9 +246,6 @@ void* offload_main(void* arg){
         pthread_cond_signal(&offload_cond[ind]);
         pthread_mutex_unlock(&offload_mutex[ind]);
 
-
-
-        // pthread_mutex_unlock(&offload_mutex[ind]);
 
 
         timing = &timings[period];
@@ -712,9 +706,14 @@ int main(int argc, char** argv){
               }
               break;
 
+            case 'D':
+              debug_trans = atoi(optarg);
+              break;
+
+
             case 'h':
             default:
-              printf("%s -h(elp) -n num_radios -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment ('P'plain /'O' offload)\n\nExample usage: sudo ./gd.o -n 4 -s 1000 -d 10 -p 99 -S F -e P \n",
+              printf("%s -h(elp) -n num_radios -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment ('P'plain /'O' offload) -D transport debug(0 or 1)\n\nExample usage: sudo ./gd.o -n 4 -s 1000 -d 10 -p 99 -S F -e P -D 0\n",
                      argv[0]);
               exit(1);
               break;
