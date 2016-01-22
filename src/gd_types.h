@@ -81,6 +81,7 @@ typedef struct _gd_off_timing_meta_t{
 
     unsigned long total_duration;
     unsigned long task_duration;
+    char type[30];
     unsigned long period;
 
 } gd_off_timing_meta_t;

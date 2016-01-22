@@ -29,8 +29,7 @@ static int *result_ready; //indicates if the result is ready
 static int subframe_avail[3];
 
 static int running;
-
-const static int debug_trans = 0;
+static int debug_trans = 0;
 gd_rng_buff_t *rng_buff;
 
 static int offload_sleep[3];
@@ -111,14 +110,14 @@ void* offload_main(void* arg){
     struct timespec t_current;
     t_current = tdata->main_start;
 	int period = 0;
-
+    char type[30];
 
 
     while(running && (period < nperiods)){
 
 		int terminate_flag = 0;
-        pthread_mutex_lock(&offload_mutex[ind]);
 
+        pthread_mutex_lock(&offload_mutex[ind]);
         log_debug("offloading thread: %d is sleeping, proc thread is idle? %d\n",ind,proc_idle[ind]);
 		//while processing thread not idle, keep on waiting
 		while (proc_trigger[ind]==1) {
@@ -140,7 +139,8 @@ void* offload_main(void* arg){
 		//after processing thread finishes, do we need offloading thread thread hanging?
 		if(terminate_flag) {
 			log_notice("offloading thread %d ordered to exit", ind);
-			break;
+			sprintf(type, "terminate");
+            break;
 		}
 
 		int my_offload_flag = 0;
@@ -153,6 +153,8 @@ void* offload_main(void* arg){
 			pthread_cond_wait(&task_ready_cond[ind], &task_ready_mutex[ind]);
 			log_debug ("thread [%d] got a task, flag is %d",ind,task_ready_flag[ind]);
 		}
+
+
 		if (task_ready_flag[ind]==1){
 			my_offload_flag = 1;
 			log_debug("let's do some offloading :) thread[%d]",ind);
@@ -161,6 +163,8 @@ void* offload_main(void* arg){
 		if (task_ready_flag[ind]==2){
 
 			log_debug("offload thread: %d woken up by trans thread --venture",ind);
+            sprintf(type, "trans_kill");
+
 		}
 		if (task_ready_flag[ind]==3) {
 			terminate_flag = 1;
@@ -169,14 +173,11 @@ void* offload_main(void* arg){
 
 		if(terminate_flag) {
 			log_notice("offloading thread %d ordered to exit", ind);
+            sprintf(type, "terminate");
 			break;
 		}
 
 
-
-        clock_gettime(CLOCK_MONOTONIC, &off_task_start);
-
-		//do we need a lock? -- yes
 		result_ready[ind] = 0;
 		//also we need a condition here so that this thread is not offloaded
 		//the signal will come from the thread that has tasks to offload
@@ -185,6 +186,8 @@ void* offload_main(void* arg){
 
         // work only if task ready == 1
         if (task_ready_flag[ind]==1){
+
+            clock_gettime(CLOCK_MONOTONIC, &off_task_start);
 
             int flag = 0;
             int j;
@@ -200,6 +203,7 @@ void* offload_main(void* arg){
                         task_ready_flag[ind]=0; //same as above :)
                         pthread_mutex_unlock(&task_ready_mutex[ind]);
                         flag=1;
+                        sprintf(type, "task_incomplete");
                         clock_gettime(CLOCK_MONOTONIC, &off_task_end);
                         j=500001;
         			}
@@ -212,6 +216,8 @@ void* offload_main(void* arg){
 
     			result_ready[ind] =1; // this indicates the task was not dropped, and we have computed the final result
                 proc_idle[ind]=0;
+                sprintf(type, "task_complete");
+
                 pthread_mutex_lock(&task_ready_mutex[ind]);
                 task_ready_flag[ind]=0; //same as above :)
                 pthread_mutex_unlock(&task_ready_mutex[ind]);
@@ -224,16 +230,13 @@ void* offload_main(void* arg){
                 }
 
                 if (subframe_avail[ind]==-1){
-                   log_debug(" offload thread [%d] got it!", ind);
+                   log_debug(" offload thread [%d] got terminated!", ind);
                     break;
                 }
 
                 // consume subframe
                 subframe_avail[ind] = 0;
-
                 pthread_mutex_unlock(&subframe_mutex[ind]);
-
-
             }
         }
 
@@ -263,12 +266,14 @@ void* offload_main(void* arg){
         timing->rel_task_end_time = timing->abs_task_end_time - abs_period_start;
         timing->total_duration = timing->rel_end_time - timing->rel_start_time;
         timing->task_duration = timing->rel_task_end_time - timing->rel_task_start_time;
+        sprintf(timing->type, type);
 
         // update to next period
         t_current = timespec_add(&t_current, &tdata->period);
         period ++;
     }
 
+    // release the local proc thread
     pthread_mutex_lock(&offload_mutex[ind]);
     pthread_cond_signal(&offload_cond[ind]);
     pthread_mutex_unlock(&offload_mutex[ind]);
@@ -284,13 +289,13 @@ void* offload_main(void* arg){
 
     fprintf(tdata->log_handler, "#idx"
                   "\t\trel_period\t\trel_start\t\trel_end\t\trel_task_start\t\trel_task_end"
-                  "\t\ttotal_duration\t\ttask_duration\n");
+                  "\t\ttotal_duration\t\ttask_duration\t\ttype\n");
 
     int i;
     for (i=0; i < nperiods-3; i++){
         fprintf(tdata->log_handler,
         // "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\n",
-        "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\n",
+        "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%s\n",
         timings[i].ind,
         // timings[i].abs_period_time,
         // timings[i].abs_start_time,
@@ -303,7 +308,8 @@ void* offload_main(void* arg){
         timings[i].rel_task_start_time,
         timings[i].rel_task_end_time,
         timings[i].total_duration,
-        timings[i].task_duration
+        timings[i].task_duration,
+        timings[i].type
         );
     }
     fclose(tdata->log_handler);
@@ -543,9 +549,9 @@ void* proc_main(void* arg){
         /*****************************/
        log_debug("proc thread [%d] just finished its processing", id);
 
-			pthread_mutex_lock(&offload_mutex[id]);
-            proc_trigger[id]=0;
-            pthread_mutex_unlock(&offload_mutex[id]);
+		pthread_mutex_lock(&offload_mutex[id]);
+        proc_trigger[id]=0;
+        pthread_mutex_unlock(&offload_mutex[id]);
 
 
 
@@ -644,7 +650,7 @@ int main(int argc, char** argv){
     sprintf(exp_str, "offload");
 
     char c;
-    while ((c = getopt (argc, argv, "h::n:s:d:p:S:e:")) != -1) {
+    while ((c = getopt (argc, argv, "h::n:s:d:p:S:e:D:")) != -1) {
         switch (c) {
             case 'n':
               num_nodes = atoi(optarg);

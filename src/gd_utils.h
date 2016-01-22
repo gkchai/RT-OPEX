@@ -13,7 +13,7 @@
 #define LOG_PREFIX "[gd_sched] "
 #endif
 #ifndef LOG_LEVEL
-#define LOG_LEVEL 100
+#define LOG_LEVEL 50
 #endif
 
 #define LOG_LEVEL_DEBUG 100
