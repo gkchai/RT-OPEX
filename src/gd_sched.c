@@ -30,7 +30,7 @@ static int subframe_avail[3];
 
 static int running;
 
-const static int debug_trans = 1;
+const static int debug_trans = 0;
 gd_rng_buff_t *rng_buff;
 
 static int offload_sleep[3];
@@ -106,8 +106,6 @@ void* offload_main(void* arg){
 	nperiods-=500;// probably one period less than the processing thread to avoid hanging threads.
 
     timings = (gd_off_timing_meta_t*) malloc ( nperiods * sizeof(gd_off_timing_meta_t));
-
-
     gd_off_timing_meta_t* timing;
     struct timespec off_start, off_end, off_task_start, off_task_end;
     struct timespec t_current;
@@ -272,12 +270,12 @@ void* offload_main(void* arg){
         timing->total_duration = timing->rel_end_time - timing->rel_start_time;
         timing->task_duration = timing->rel_task_end_time - timing->rel_task_start_time;
 
-
         // update to next period
         t_current = timespec_add(&t_current, &tdata->period);
         period ++;
     }
 
+<<<<<<< HEAD
     pthread_mutex_lock(&offload_mutex[ind]);
     pthread_cond_signal(&offload_cond[ind]);
     pthread_mutex_unlock(&offload_mutex[ind]);

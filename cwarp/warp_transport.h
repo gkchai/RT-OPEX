@@ -4,6 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
+// #include "../src/complex.h"
 #include <complex.h>
 #include <time.h>
 //#include <pthread.h>
@@ -132,7 +133,7 @@ typedef struct
     char              *buf;       // Pointer to the data buffer
     int                length;    // Length of the buffer (buffer must be pre-allocated)
     int                offset;    // Offset of data to be sent or received
-    struct sockaddr_in address;   // Address information of data to be sent / recevied    
+    struct sockaddr_in address;   // Address information of data to be sent / recevied
 } wl_trans_data_pkt;
 
 // Socket structure
@@ -184,13 +185,13 @@ typedef struct
 
 
 struct thread_data{
-    double complex* samples; 
+    double complex* samples;
     int handle;
     char* readIQ_buffer;
     char* ip_addr;
     int port;
     uint32 buffer_id;
-    int start_sample; 
+    int start_sample;
     int max_length;
     int num_samples;
     int num_pkts;
@@ -203,7 +204,7 @@ unsigned int sum1[20]; // needed to run checksum methods in multiple threads
 unsigned int sum2[20]; // ""
 
 #ifdef WIN32
-WSADATA          wsaData;              // Structure for WinSock setup communication 
+WSADATA          wsaData;              // Structure for WinSock setup communication
 #endif
 
 /*************************** Function Prototypes *****************************/
@@ -252,7 +253,7 @@ int          wl_read_iq_find_error( wl_sample_tracker *tracker, uint32 num_sampl
 
 // WARPLab Functions
 int          wl_read_baseband_buffer( int index, char *buffer, int length, char *ip_addr, int port,
-                                      int num_samples, int start_sample, uint32 buffer_id, 
+                                      int num_samples, int start_sample, uint32 buffer_id,
                                       uint32 *output_array, uint32 *num_cmds );
 
 int          wl_write_baseband_buffer( int index, char *buffer, int max_length, char *ip_addr, int port,
