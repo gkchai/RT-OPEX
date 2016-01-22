@@ -119,8 +119,6 @@ void* offload_main(void* arg){
 
     while(running && (period < nperiods)){
 
-
-
 		int terminate_flag = 0;
         pthread_mutex_lock(&offload_mutex[ind]);
 
@@ -257,7 +255,7 @@ void* offload_main(void* arg){
                   "\t\ttotal_duration\t\ttask_duration\n");
 
     int i;
-    for (i=0; i < nperiods; i++){
+    for (i=0; i < nperiods-3; i++){
         fprintf(tdata->log_handler,
         // "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\n",
         "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\n",
@@ -360,8 +358,9 @@ void* trans_main(void* arg){
         timing->actual_duration = timing->rel_end_time - timing->rel_start_time;
         timing->slack = timing->rel_deadline - timing->rel_end_time;
 
-        if (timing->slack < 0){
-            log_critical("Deadline miss. Thread[%d] period[%lu] slack = %ld", tdata->ind, period, timing->slack);
+        if (timing->actual_duration > 1000){
+            log_critical("Transport overload. Thread[%d] Duration= %lu us. Reduce samples or increase threads",
+                tdata->ind, timing->actual_duration);
         }
 
         clock_gettime(CLOCK_MONOTONIC, &t_now);
@@ -592,7 +591,7 @@ gd_shutdown(int sig)
 
 
 
-int main(){
+int main(int argc, char** argv){
 
 
 	srand(time(NULL));
@@ -608,11 +607,93 @@ int main(){
     int node_socks[num_nodes];
     int host_id = 200;
     int num_samples = 1*1e6*1e-3; // samples in subframe = (samples/sec)*1ms
-    int duration = 5; //secs
+    int duration = 50; //secs
     int priority = 99;
-    double complex *buffer = (double complex*) malloc(num_samples*sizeof(double complex));
     int sched = SCHED_FIFO;
-    sprintf(exp_str, "plain");
+    sprintf(exp_str, "offload");
+
+    char c;
+    char opt_input[10];
+    while ((c = getopt (argc, argv, "h::n:s:d:p:S:e:")) != -1) {
+        switch (c) {
+            case 'n':
+              num_nodes = atoi(optarg);
+              break;
+
+            case 's':
+              num_samples = atoi(optarg);
+              break;
+
+            case 'd':
+              duration = atoi(optarg);
+              break;
+
+            case 'p':
+              priority = atoi(optarg);
+              if (priority > 99){
+                log_error("Unsupported priority!\n");
+                exit(-1);
+              }
+              break;
+
+
+            case 'S':
+              sprintf(opt_input,optarg,10);
+              switch((char)*optarg){
+
+                  case 'R':
+                    sched = SCHED_RR;
+                    break;
+
+                  case 'F':
+                    sched = SCHED_FIFO;
+                    break;
+
+                  case 'O':
+                    sched = SCHED_OTHER;
+                    break;
+
+
+                  default:
+                    log_error("Unsupported scheduler!\n");
+                    exit(-1);
+                    break;
+              }
+              break;
+
+            case 'e':
+              sprintf(opt_input,optarg,10);
+              switch((char)*optarg){
+
+                  case 'P':
+                    sprintf(exp_str, "plain");
+                    break;
+
+                  case 'O':
+                    sprintf(exp_str, "offload");
+                    break;
+
+                  default:
+                    log_error("Unsupported exp!\n");
+                    exit(-1);
+                    break;
+              }
+              break;
+
+
+            case 'h':
+            default:
+              printf("%s -h(elp) -n num_radios -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment ('P'plain /'O' offload)\n\nExample usage: sudo ./gd.o -n 4 -s 1000 -d 10 -p 99 -S F -e P \n",
+                     argv[0]);
+              exit(1);
+              break;
+
+        }
+    }
+
+
+
+    double complex *buffer = (double complex*) malloc(num_samples*sizeof(double complex));
 
     policy_to_string(sched, tmp_str_a);
 
@@ -708,7 +789,7 @@ int main(){
         proc_tdata[i].ind = i;
         proc_tdata[i].duration = duration;
         proc_tdata[i].sched_policy = sched;
-        proc_tdata[i].deadline = usec_to_timespec(2000);
+        proc_tdata[i].deadline = usec_to_timespec(3000);
         proc_tdata[i].period = usec_to_timespec(3000);
 
         sprintf(tmp_str, "../log/exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d.log",
@@ -728,7 +809,7 @@ int main(){
         offload_tdata[i].ind = i;
         offload_tdata[i].duration = duration; //probably we have to revise
         offload_tdata[i].sched_policy = sched;
-        offload_tdata[i].deadline = usec_to_timespec(2000);
+        offload_tdata[i].deadline = usec_to_timespec(3000);
         offload_tdata[i].period = usec_to_timespec(3000);
 
 		//we can assume offloading thread count is always equal to proc thread count?
@@ -776,14 +857,15 @@ int main(){
     }
 
 
-    log_notice("Starting offloading threads");
-
-    for(i= 0; i < offload_nthreads; i++){
-        offload_tdata[i].main_start = t_start;
-        thread_ret = pthread_create(&offload_threads[i], NULL, offload_main, &offload_tdata[i]);
-        if (thread_ret){
-            log_error("Cannot start thread");
-            exit(-1);
+    if (strcmp(exp_str, "offload") == 0){
+        log_notice("Starting offloading threads");
+        for(i= 0; i < offload_nthreads; i++){
+            offload_tdata[i].main_start = t_start;
+            thread_ret = pthread_create(&offload_threads[i], NULL, offload_main, &offload_tdata[i]);
+            if (thread_ret){
+                log_error("Cannot start thread");
+                exit(-1);
+            }
         }
     }
 
@@ -802,11 +884,13 @@ int main(){
 
     }
 
-    for (i = 0; i < offload_nthreads; i++)
-    {
-        pthread_join(offload_threads[i], NULL);
-    }
+    if (strcmp(exp_str, "offload") == 0){
 
+        for (i = 0; i < offload_nthreads; i++)
+        {
+            pthread_join(offload_threads[i], NULL);
+        }
+    }
 
 	//let's not wait for the offloading threads to finish, no need I guess. -- maybe change later
     return 0;
