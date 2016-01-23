@@ -133,10 +133,9 @@ void* offload_main(void* arg){
 			}
 			log_debug ("offloading thread[%d] WAKES UP, proc thread is idle? %d",ind,proc_idle[ind]);
 			offload_sleep[ind]=0;
-			// proc_trigger[ind] = 0;
-            // proc_idle[ind] = 1;
-
 		}
+
+        //TODO: should proc_idle be set in trans_main ?
         proc_idle[ind] = 1;
 		pthread_mutex_unlock(&offload_mutex[ind]);
 
@@ -268,8 +267,6 @@ void* offload_main(void* arg){
         log_debug("offload thread %d type is %s", ind, timing->type);
 
 
-        // update to next period
-        // t_current = timespec_add(&t_current, &tdata->period);
         t_current = common_time[ind];
         period ++;
 
@@ -387,7 +384,6 @@ void* trans_main(void* arg){
 		}
 
 
-
 		pthread_cond_signal(&subframe_cond[period%3]);
         pthread_mutex_unlock(&subframe_mutex[period%3]);
 
@@ -422,8 +418,8 @@ void* trans_main(void* arg){
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
         }
 
-
         period ++;
+        // only one transport thread should update global time
         if (ind==0){
             clock_gettime(CLOCK_MONOTONIC, &common_time[period%3]);
         }
@@ -462,15 +458,10 @@ void* proc_main(void* arg){
     gd_thread_data_t *tdata = (gd_thread_data_t *) arg;
     int id = tdata->ind;
     thread_common(pthread_self(), tdata);
-
     unsigned long abs_period_start = timespec_to_usec(&tdata->main_start);
-
-
     struct timespec t_offset;
     t_offset = usec_to_timespec(id*1000);
     tdata->main_start = timespec_add(&tdata->main_start, &t_offset);
-
-
     struct timespec proc_start, proc_end, t_next, t_deadline;
     gd_timing_meta_t *timings;
     long duration_usec = (tdata->duration * 1e6);
@@ -485,20 +476,16 @@ void* proc_main(void* arg){
 
     t_next = tdata->main_start;
     int period = 0;
-    int once = 0;
+
 
     log_notice("Starting proc thread %d nperiods %d %lu", id, nperiods, timespec_to_usec(&t_offset));
-
-
     while(running && (period < nperiods)){
-
 
 
 	//Processing thread is going to sleep; wake up the offloading thread
 	//an assumption here is that the offloading thread is going to finish before
 	//processing thread wakes up again
 
-//		printf ("proc thread: %d sleeps",id);
 		int terminate_flag = 0;
 
 
@@ -526,13 +513,9 @@ void* proc_main(void* arg){
         }
 
 
-
         /****** do LTE processing *****/
         t_deadline = timespec_add(&common_time[id], &tdata->deadline);
         t_next = timespec_add(&common_time[id], &tdata->period);
-
-
-
         clock_gettime(CLOCK_MONOTONIC, &proc_start);
 
 
@@ -544,12 +527,10 @@ void* proc_main(void* arg){
         for(j=0; j <5000; j++){
 			//here, we might want to check if offloading thread is running
 			if (j == 1000) {//just an initial condition for the check if offloading thread is NOT sleeping
-				pthread_mutex_lock(&offload_mutex[offload_ind]);
 				if (offload_sleep[offload_ind]==0 && !flag) {
 					log_debug("the offloading thread of id: %d is awake",offload_ind);
 					flag = 1; //print only once :)
 				}
-				pthread_mutex_unlock(&offload_mutex[offload_ind]);
 				int temp = rand()%10;
 				if (flag == 1&& temp >0) { // don't offload everytime for testing purposes
 					flag++;
@@ -571,8 +552,6 @@ void* proc_main(void* arg){
        log_debug("proc thread [%d] just finished its processing", id);
 
 
-
-
         timing = &timings[period];
         timing->ind = id;
         timing->period = period;
@@ -587,16 +566,7 @@ void* proc_main(void* arg){
         timing->actual_duration = timing->rel_end_time - timing->rel_start_time;
         timing->slack = timing->rel_deadline - timing->rel_end_time;
 
-        // printf("Thread [%d] period [%d]", id, period);
-
         period++;
-
-
-        // pthread_mutex_lock(&offload_mutex[id]);
-        // proc_trigger[id]=0;
-        // pthread_cond_signal(&offload_cond[id]);
-        // pthread_mutex_unlock(&offload_mutex[id]);
-
     }
     log_notice("Writing to log ... proc thread %d", id);
 
@@ -656,7 +626,6 @@ gd_shutdown(int sig)
     {
         pthread_join(offload_threads[i], NULL);
     }
-
 
     log_notice("Received shutdown signal ...\n");
     exit(-1);
@@ -764,9 +733,7 @@ int main(int argc, char** argv){
     }
 
 
-
     double complex *buffer = (double complex*) malloc(num_samples*sizeof(double complex));
-
     policy_to_string(sched, tmp_str_a);
 
 
@@ -856,9 +823,7 @@ int main(int argc, char** argv){
         trans_tdata[i].conn_desc.start_sample = 0;
         trans_tdata[i].conn_desc.buffer = buffer;
         trans_tdata[i].conn_desc.buffer_id = 1;
-
     }
-
 
 
     for(i= 0; i < proc_nthreads; i++){
@@ -879,9 +844,7 @@ int main(int argc, char** argv){
         proc_trigger[i] = 0;
 
         clock_gettime(CLOCK_MONOTONIC, &common_time[i]);
-
     }
-
 
 
     for(i= 0; i < offload_nthreads; i++){
@@ -900,7 +863,6 @@ int main(int argc, char** argv){
         offload_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
         CPU_SET( 8+2*i, offload_tdata[i].cpuset); //pin the offloading and processing threads on the same cores
         offload_sleep[i] = 1;
-
     }
 
 
@@ -924,24 +886,18 @@ int main(int argc, char** argv){
     // t_sleep = timespec_add(&t_start, &t_sleep);
     // clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_sleep, NULL);
 
-
-    if (strcmp(exp_str, "offload") == 0){
-        log_notice("Starting offloading threads");
-        for(i= 0; i < offload_nthreads; i++){
-            offload_tdata[i].main_start = t_start;
-            thread_ret = pthread_create(&offload_threads[i], NULL, offload_main, &offload_tdata[i]);
-            if (thread_ret){
-                log_error("Cannot start thread");
-                exit(-1);
-            }
+    log_notice("Starting offloading threads");
+    for(i= 0; i < offload_nthreads; i++){
+        offload_tdata[i].main_start = t_start;
+        thread_ret = pthread_create(&offload_threads[i], NULL, offload_main, &offload_tdata[i]);
+        if (thread_ret){
+            log_error("Cannot start thread");
+            exit(-1);
         }
     }
 
 
-
     log_notice("Starting proc threads");
-
-
     for(i= 0; i < proc_nthreads; i++){
         proc_tdata[i].main_start = t_start;
         thread_ret = pthread_create(&proc_threads[i], NULL, proc_main, &proc_tdata[i]);
@@ -952,32 +908,19 @@ int main(int argc, char** argv){
     }
 
 
-
-
-
-
-
     for (i = 0; i < trans_nthreads; i++)
     {
         pthread_join(trans_threads[i], NULL);
     }
-
-
-
     for (i = 0; i < proc_nthreads; i++)
     {
         pthread_join(proc_threads[i], NULL);
 
     }
-
-    if (strcmp(exp_str, "offload") == 0){
-
-        for (i = 0; i < offload_nthreads; i++)
-        {
-            pthread_join(offload_threads[i], NULL);
-        }
+    for (i = 0; i < offload_nthreads; i++)
+    {
+        pthread_join(offload_threads[i], NULL);
     }
 
-	//let's not wait for the offloading threads to finish, no need I guess. -- maybe change later
     return 0;
 }
