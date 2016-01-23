@@ -57,8 +57,6 @@ def read_off_log_timing(filenames):
     return np.concatenate(arrs)
 
 
-
-
 def deadline_miss(obj):
     return (len(obj.proc[:, 'slack'] > 0)/len(obj.proc_time[:, 'slack']))
 
