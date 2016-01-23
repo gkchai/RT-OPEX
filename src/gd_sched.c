@@ -290,26 +290,26 @@ void* offload_main(void* arg){
 
     log_notice("Writing to log ... offload thread %d", ind);
 
-    // fprintf(tdata->log_handler, "#idx\t\tabs_period\t\tabs_start\t\tabs_end"
-    //             "\t\tabs_task_start\t\tabs_task_end"
-    //               "\t\trel_period\t\trel_start\t\trel_end\t\trel_task_start\t\trel_task_end"
-    //               "\t\ttotal_duration\t\ttask_duration\n");
-
-    fprintf(tdata->log_handler, "#idx"
+    fprintf(tdata->log_handler, "#idx\t\tabs_period\t\tabs_start\t\tabs_end"
+                "\t\tabs_task_start\t\tabs_task_end"
                   "\t\trel_period\t\trel_start\t\trel_end\t\trel_task_start\t\trel_task_end"
                   "\t\ttotal_duration\t\ttask_duration\t\ttype\n");
+
+    // fprintf(tdata->log_handler, "#idx"
+    //               "\t\trel_period\t\trel_start\t\trel_end\t\trel_task_start\t\trel_task_end"
+    //               "\t\ttotal_duration\t\ttask_duration\t\ttype\n");
 
     int i;
     for (i=0; i < nperiods-3; i++){
         fprintf(tdata->log_handler,
-        // "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\n",
-        "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%s\n",
+        "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%s\n",
+        // "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%s\n",
         timings[i].ind,
-        // timings[i].abs_period_time,
-        // timings[i].abs_start_time,
-        // timings[i].abs_end_time,
-        // timings[i].abs_task_start_time,
-        // timings[i].abs_task_end_time,
+        timings[i].abs_period_time,
+        timings[i].abs_start_time,
+        timings[i].abs_end_time,
+        timings[i].abs_task_start_time,
+        timings[i].abs_task_end_time,
         timings[i].rel_period_time,
         timings[i].rel_start_time,
         timings[i].rel_end_time,
