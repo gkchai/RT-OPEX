@@ -547,30 +547,34 @@ void* proc_main(void* arg){
         // start with parallel tasks
         // check for offload in parallel tasks
         int N_rem = N_tot;
-        int N_off;
+        int N_off = 0;
         deadline_miss = 0;
+        int offloaded_flag = 0;
 
         while(N_rem > 0){
 
             clock_gettime(CLOCK_MONOTONIC, &t_temp);
-            if (offload_sleep[offload_ind]==0){
+            if (offload_sleep[offload_ind]==0 && offloaded_flag == 0){
                 avail_time = time_deadline - timespec_to_usec(&t_temp);
                 N_off = req_offload_loops(avail_time, t_p, t_s, N_rem);
                 if (N_off == -1){
                     // no offload will help
+                    // pick any offload we like
                     deadline_miss = 1;
+                    N_off = (int)N_rem/2;
+                    N_rem = N_rem - N_off;
 
                 }else{
                     N_rem = N_rem - N_off;
+                    deadline_miss = 0;
+                }
                     pthread_mutex_lock(&task_ready_mutex[offload_ind]);
                     log_debug("sending %d loops to be offloaded from: %d to: %d",N_off,id,offload_ind);
                     task_ready_flag[offload_ind]=1;
                     pthread_cond_signal(&task_ready_cond[offload_ind]);
                     pthread_mutex_unlock(&task_ready_mutex[offload_ind]);
-                    deadline_miss = 0;
-                }
+                    offloaded_flag = 1;
 
-                break;
             }
             // sleep for pall_time
             t_temp = timespec_add(&t_temp, &t_pall);
@@ -608,8 +612,8 @@ void* proc_main(void* arg){
         timing->original_duration = proc_actual_time;
         timing->actual_duration = timing->rel_end_time - timing->rel_start_time;
         timing->miss = deadline_miss;
-        timing->no_offload = (N_off > 0)? N_off:0;
-        timing->dur_offload = (N_off > 0) ? N_off*t_p:0;
+        timing->no_offload =  N_off;
+        timing->dur_offload = N_off*t_p;
 
 
         period++;
