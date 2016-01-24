@@ -13,7 +13,7 @@
 #define LOG_PREFIX "[gd_sched] "
 #endif
 #ifndef LOG_LEVEL
-#define LOG_LEVEL 100
+#define LOG_LEVEL 50
 #endif
 
 #define LOG_LEVEL_DEBUG 100
@@ -92,6 +92,13 @@ timespec_lower(struct timespec *what, struct timespec *than);
 void
 log_timing(FILE *handler, gd_timing_meta_t *t);
 
+void
+proc_log_timing(FILE *handler, gd_proc_timing_meta_t *t);
+
+void
+off_log_timing(FILE *handler, gd_off_timing_meta_t *t);
+
+
 int
 string_to_policy(const char *policy_name, int *policy);
 
@@ -100,5 +107,8 @@ policy_to_string(int policy, char *policy_name);
 
 void
 ftrace_write(int mark_fd, const char *fmt, ...);
+
+int req_offload_loops(long T, long t_p, long t_s, int N_rem);
+
 
 #endif

@@ -103,9 +103,57 @@ log_timing(FILE *handler, gd_timing_meta_t *t)
         t->rel_start_time,
         t->rel_end_time,
         t->actual_duration,
-        t->slack
+        t->miss
         );
 }
+
+void
+proc_log_timing(FILE *handler, gd_proc_timing_meta_t *t)
+{
+        fprintf(handler,
+        "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%ld\n",
+        t->ind,
+        t->abs_period_time,
+        t->abs_deadline,
+        t->abs_start_time,
+        t->abs_end_time,
+        t->rel_period_time,
+        t->rel_start_time,
+        t->rel_end_time,
+        t->original_duration,
+        t->actual_duration,
+        t->no_offload,
+        t->dur_offload,
+        t->miss
+        );
+}
+
+void
+off_log_timing(FILE *handler, gd_off_timing_meta_t *t)
+{
+
+    fprintf(handler,
+        "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%s\n",
+        t->ind,
+        t->abs_period_time,
+        t->abs_start_time,
+        t->abs_end_time,
+        t->abs_task_start_time,
+        t->abs_task_end_time,
+        t->rel_period_time,
+        t->rel_start_time,
+        t->rel_end_time,
+        t->rel_task_start_time,
+        t->rel_task_end_time,
+        t->total_duration,
+        t->task_duration,
+        t->type
+        );
+
+}
+
+
+
 
 
 int
@@ -187,3 +235,25 @@ void ftrace_write(int mark_fd, const char *fmt, ...)
     }
 
 }
+
+// return -1 if offloading does not cut it, always deadline-miss
+// else return the loops that must be offloaded when
+// N_done parallel loops are already completed
+int req_offload_loops(long T, long t_p, long t_s, int N_rem){
+
+    // T is remaining time
+
+    int N_off = -1;
+    int i;
+    // (N_rem - N_off)t_p + t_s <= T and N_off*t_p <= (N_rem - N_off)t_p
+    // ==> N_off >= N_r - (T-t_s)/t_p and N_off <= N_rem/2
+
+    for (i=1; i<= (int)N_rem/2; i++){
+        if (i >= N_rem - (int)((T-t_s)/t_p)){
+            N_off = i;
+            break;
+        }
+    }
+    return N_off;
+}
+

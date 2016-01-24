@@ -123,17 +123,20 @@ void* offload_main(void* arg){
         pthread_mutex_lock(&offload_mutex[ind]);
         log_debug("offloading thread: %d is sleeping, proc thread is idle? %d",ind,proc_idle[ind]);
 
+        offload_sleep[ind]=1;
+
 		//while processing thread not idle, keep on waiting
 		while (proc_trigger[ind]==1) {
 			// printf ("offloadiing thread: %d sleeeeps, proc thread is idle? %d\n",ind,proc_idle[ind]);
-			offload_sleep[ind]=1;
 			pthread_cond_wait(&offload_cond[ind], &offload_mutex[ind]);
-			if (proc_idle[ind]==3){
-				terminate_flag = 1;
-			}
-			log_debug ("offloading thread[%d] WAKES UP, proc thread is idle? %d",ind,proc_idle[ind]);
-			offload_sleep[ind]=0;
 		}
+
+        if (proc_idle[ind]==3){
+            terminate_flag = 1;
+        }
+        log_debug ("offloading thread[%d] WAKES UP, proc thread is idle? %d",ind,proc_idle[ind]);
+        offload_sleep[ind]=0;
+
 
         //TODO: should proc_idle be set in trans_main ?
         proc_idle[ind] = 1;
@@ -198,7 +201,7 @@ void* offload_main(void* arg){
 
             int flag = 0;
             int j;
-    		for (j=0; j<50000 ;j++){
+    		for (j=0; j<5000 ;j++){
 
                 if (j%1000 == 0){
 
@@ -295,30 +298,9 @@ void* offload_main(void* arg){
                   "\t\trel_period\t\trel_start\t\trel_end\t\trel_task_start\t\trel_task_end"
                   "\t\ttotal_duration\t\ttask_duration\t\ttype\n");
 
-    // fprintf(tdata->log_handler, "#idx"
-    //               "\t\trel_period\t\trel_start\t\trel_end\t\trel_task_start\t\trel_task_end"
-    //               "\t\ttotal_duration\t\ttask_duration\t\ttype\n");
-
     int i;
-    for (i=0; i < nperiods-3; i++){
-        fprintf(tdata->log_handler,
-        "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%s\n",
-        // "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%s\n",
-        timings[i].ind,
-        timings[i].abs_period_time,
-        timings[i].abs_start_time,
-        timings[i].abs_end_time,
-        timings[i].abs_task_start_time,
-        timings[i].abs_task_end_time,
-        timings[i].rel_period_time,
-        timings[i].rel_start_time,
-        timings[i].rel_end_time,
-        timings[i].rel_task_start_time,
-        timings[i].rel_task_end_time,
-        timings[i].total_duration,
-        timings[i].task_duration,
-        timings[i].type
-        );
+    for (i=0; i < nperiods; i++){
+        off_log_timing(tdata->log_handler, &timings[i]);
     }
     fclose(tdata->log_handler);
     log_notice("Exit offloading thread %d", ind);
@@ -360,7 +342,7 @@ void* trans_main(void* arg){
         /******* Main transport ******/
 		if (debug_trans) {
 			int j;
-			for(j=0; j <50000; j++){}
+			for(j=0; j <30000; j++){}
 		} else {
 	        gd_trans_read(tdata->conn_desc);
 		}
@@ -403,7 +385,7 @@ void* trans_main(void* arg){
         timing->abs_deadline = timespec_to_usec(&t_deadline);
         timing->rel_deadline = timing->abs_deadline - abs_period_start;
         timing->actual_duration = timing->rel_end_time - timing->rel_start_time;
-        timing->slack = timing->rel_deadline - timing->rel_end_time;
+        timing->miss = (timing->rel_deadline - timing->rel_end_time >= 0) ? 0 : 1;
 
         if (timing->actual_duration > 250){
             log_critical("Transport overload. Thread[%d] Duration= %lu us. Reduce samples or increase threads",
@@ -431,7 +413,7 @@ void* trans_main(void* arg){
 
 
     fprintf(tdata->log_handler, "#idx\t\tabs_period\t\tabs_deadline\t\tabs_start\t\tabs_end"
-                   "\t\trel_period\t\trel_start\t\trel_end\t\tduration\t\tslack\n");
+                   "\t\trel_period\t\trel_start\t\trel_end\t\tduration\t\tmiss\n");
 
 
     int i;
@@ -463,7 +445,7 @@ void* proc_main(void* arg){
     t_offset = usec_to_timespec(id*1000);
     tdata->main_start = timespec_add(&tdata->main_start, &t_offset);
     struct timespec proc_start, proc_end, t_next, t_deadline;
-    gd_timing_meta_t *timings;
+    gd_proc_timing_meta_t *timings;
     long duration_usec = (tdata->duration * 1e6);
     int nperiods = (int) floor(duration_usec /
             (double) timespec_to_usec(&tdata->period));
@@ -471,12 +453,19 @@ void* proc_main(void* arg){
     //nperiods reduce a little to prevents trans finishing before proc; ugly fix
     nperiods-=500;
 
-    timings = (gd_timing_meta_t*) malloc ( nperiods * sizeof(gd_timing_meta_t));
-    gd_timing_meta_t *timing;
+    timings = (gd_proc_timing_meta_t*) malloc ( nperiods * sizeof(gd_proc_timing_meta_t));
+    gd_proc_timing_meta_t *timing;
 
     t_next = tdata->main_start;
     int period = 0;
+    int deadline_miss=0;
 
+   long time_deadline, proc_actual_time, t_p, t_s, avail_time;
+   int N_tot;
+   struct timespec t_temp, t_pall, t_ser;
+   // int* subframe_T = tdata->subframe_T;
+   // int* subframe_t_p = tdata->subframe_t_p;
+   // int* subframe_N_tot = tdata->subframe_N_tot;
 
     log_notice("Starting proc thread %d nperiods %d %lu", id, nperiods, timespec_to_usec(&t_offset));
     while(running && (period < nperiods)){
@@ -517,35 +506,88 @@ void* proc_main(void* arg){
         t_deadline = timespec_add(&common_time[id], &tdata->deadline);
         t_next = timespec_add(&common_time[id], &tdata->period);
         clock_gettime(CLOCK_MONOTONIC, &proc_start);
+        int offload_ind = (id+1)%offload_nthreads;
+
+  //       int j;
+		// int flag = 0;
+  //       for(j=0; j <5000; j++){
+		// 	//here, we might want to check if offloading thread is running
+		// 	if (j == 1000) {//just an initial condition for the check if offloading thread is NOT sleeping
+		// 		if (offload_sleep[offload_ind]==0 && !flag) {
+		// 			log_debug("the offloading thread of id: %d is awake",offload_ind);
+		// 			flag = 1; //print only once :)
+		// 		}
+		// 		int temp = rand()%10;
+		// 		if (flag == 1&& temp >0) { // don't offload everytime for testing purposes
+		// 			flag++;
+		// 			we can offload some tasks here
+		// 			pthread_mutex_lock(&task_ready_mutex[offload_ind]);
+		// 			log_debug("sending task to be offloaded from: %d to: %d",id,offload_ind);
+		// 			task_ready_flag[offload_ind]=1;
+		// 			pthread_cond_signal(&task_ready_cond[offload_ind]);
+		// 			pthread_mutex_unlock(&task_ready_mutex[offload_ind]);
+
+		// 		}
+		// 	}
+		// 	//at some point here, we check for result ready flag
+		// }
+
+        time_deadline = timespec_to_usec(&t_deadline);
+        // proc_actual_time  = subframe_T[period];
+        proc_actual_time  = 1500 + ((rand())%500);
+        // N_tot = subframe_N_tot[period];
+        N_tot = 8;
+        // t_p = subframe_t_p[period];
+        t_p = 100;
+        t_s = proc_actual_time - t_p*N_tot;
+        t_pall = usec_to_timespec(t_p);
+        t_ser = usec_to_timespec(t_s);
 
 
-        int j;
-		int flag = 0;
+        // start with parallel tasks
+        // check for offload in parallel tasks
+        int N_rem = N_tot;
+        int N_off;
+        deadline_miss = 0;
 
-		int offload_ind = (id+1)%offload_nthreads;
+        while(N_rem > 0){
 
-        for(j=0; j <5000; j++){
-			//here, we might want to check if offloading thread is running
-			if (j == 1000) {//just an initial condition for the check if offloading thread is NOT sleeping
-				if (offload_sleep[offload_ind]==0 && !flag) {
-					log_debug("the offloading thread of id: %d is awake",offload_ind);
-					flag = 1; //print only once :)
-				}
-				int temp = rand()%10;
-				if (flag == 1&& temp >0) { // don't offload everytime for testing purposes
-					flag++;
-					//we can offload some tasks here
-					pthread_mutex_lock(&task_ready_mutex[offload_ind]);
-					log_debug("sending task to be offloaded from: %d to: %d",id,offload_ind);
-					task_ready_flag[offload_ind]=1;
-					pthread_cond_signal(&task_ready_cond[offload_ind]);
-					pthread_mutex_unlock(&task_ready_mutex[offload_ind]);
+            clock_gettime(CLOCK_MONOTONIC, &t_temp);
+            if (offload_sleep[offload_ind]==0){
+                avail_time = time_deadline - timespec_to_usec(&t_temp);
+                N_off = req_offload_loops(avail_time, t_p, t_s, N_rem);
+                if (N_off == -1){
+                    // no offload will help
+                    deadline_miss = 1;
 
-				}
-			}
+                }else{
+                    N_rem = N_rem - N_off;
+                    pthread_mutex_lock(&task_ready_mutex[offload_ind]);
+                    log_debug("sending %d loops to be offloaded from: %d to: %d",N_off,id,offload_ind);
+                    task_ready_flag[offload_ind]=1;
+                    pthread_cond_signal(&task_ready_cond[offload_ind]);
+                    pthread_mutex_unlock(&task_ready_mutex[offload_ind]);
+                    deadline_miss = 0;
+                }
 
-			//at some point here, we check for result ready flag
-		}
+                break;
+            }
+            // sleep for pall_time
+            t_temp = timespec_add(&t_temp, &t_pall);
+            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp, NULL);
+            N_rem --;
+        }
+
+        if (deadline_miss == 1){
+            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_deadline, NULL);
+        }else{
+            clock_gettime(CLOCK_MONOTONIC, &t_temp);
+            t_temp = timespec_add(&t_temp, &t_ser);
+            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp, NULL);
+        }
+
+
+
 		//check if result is ready
         clock_gettime(CLOCK_MONOTONIC, &proc_end);
         /*****************************/
@@ -563,19 +605,23 @@ void* proc_main(void* arg){
         timing->rel_end_time = timing->abs_end_time - abs_period_start;
         timing->abs_deadline = timespec_to_usec(&t_deadline);
         timing->rel_deadline = timing->abs_deadline - abs_period_start;
+        timing->original_duration = proc_actual_time;
         timing->actual_duration = timing->rel_end_time - timing->rel_start_time;
-        timing->slack = timing->rel_deadline - timing->rel_end_time;
+        timing->miss = deadline_miss;
+        timing->no_offload = (N_off > 0)? N_off:0;
+        timing->dur_offload = (N_off > 0) ? N_off*t_p:0;
+
 
         period++;
     }
-    log_notice("Writing to log ... proc thread %d", id);
 
+    log_notice("Writing to log ... proc thread %d", id);
     fprintf(tdata->log_handler, "#idx\t\tabs_period\t\tabs_deadline\t\tabs_start\t\tabs_end"
-                   "\t\trel_period\t\trel_start\t\trel_end\t\tduration\t\tslack\n");
+                   "\t\trel_period\t\trel_start\t\trel_end\t\tduration\t\tmiss\n");
 
     int i;
     for (i=0; i < nperiods; i++){
-        log_timing(tdata->log_handler, &timings[i]);
+        proc_log_timing(tdata->log_handler, &timings[i]);
     }
     fclose(tdata->log_handler);
     log_notice("Exit proc thread %d",id);
@@ -831,7 +877,7 @@ int main(int argc, char** argv){
         proc_tdata[i].ind = i;
         proc_tdata[i].duration = duration;
         proc_tdata[i].sched_policy = sched;
-        proc_tdata[i].deadline = usec_to_timespec(3000);
+        proc_tdata[i].deadline = usec_to_timespec(2000);
         proc_tdata[i].period = usec_to_timespec(3000);
         sprintf(tmp_str, "../log/exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d.log",
             exp_str, num_samples, i, priority,tmp_str_a, trans_nthreads, proc_nthreads);

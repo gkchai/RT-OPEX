@@ -9,6 +9,7 @@ import numpy as np
 import gd_utils as utils
 import os.path
 from pprint import pprint
+import pdb
 
 # array stats
 class astat:
@@ -40,11 +41,25 @@ def read_log_timing(filenames):
     for fname in filenames:
         print 'reading file %s'%fname
         arr = np.loadtxt(fname, dtype={'names':('id', 'abs_period', 'abs_deadline',
-            'abs_start', 'abs_end', 'rel_period', 'rel_start', 'rel_end', 'duration', 'slack'
+            'abs_start', 'abs_end', 'rel_period', 'rel_start', 'rel_end', 'duration', 'miss'
             ), 'formats':(np.int64,np.int64,np.int64,np.int64,np.int64,np.int64,np.int64,np.int64,np.int64,np.int64)},
             delimiter='\t\t', skiprows=300)
         arrs.append(arr[:-100])
     return np.concatenate(arrs)
+
+def read_proc_log_timing(filenames):
+    arrs = []
+    for fname in filenames:
+        print 'reading file %s'%fname
+        arr = np.loadtxt(fname, dtype={'names':('id', 'abs_period', 'abs_deadline',
+            'abs_start', 'abs_end', 'rel_period', 'rel_start', 'rel_end', 'original_duration', 'duration',
+            'num_offload', 'dur_offload', 'miss'
+            ), 'formats':(np.int64,np.int64,np.int64,np.int64,np.int64,np.int64,np.int64,np.int64,np.int64,
+            np.int64,np.int64,np.int64,np.int64)},
+            delimiter='\t\t', skiprows=300)
+        arrs.append(arr[:-100])
+    return np.concatenate(arrs)
+
 
 def read_off_log_timing(filenames):
     arrs = []
@@ -71,8 +86,6 @@ def correctness(arrp, arro):
         if  (ps > os and ps < oe) or (os > ps and os < pe):
             correct = False
             print "proc=[",ps, pe,"] off=[", os, oe,"]"
-
-
             break
     return correct
 
@@ -83,6 +96,7 @@ def time_analysis(arrp, arro):
     start_time = max(arrp['abs_start'][0], arro['abs_start'][0])
     end_time = min(arrp['abs_start'][-1], arro['abs_start'][-1])
 
+    # get common times
     arrp = arrp[(arrp['abs_start'] >= start_time) & (arrp['abs_start'] <= end_time)]
     arro = arro[(arro['abs_start'] >= start_time) & (arro['abs_start'] <= end_time)]
 
@@ -90,24 +104,61 @@ def time_analysis(arrp, arro):
 
     assert(correctness(arrp, arro))
 
-    # Proc then Off
     sum_proc_dur = sum(arrp['duration'])
-    sum_offload_dur = sum(arro['total_duration'])
+    sum_original_proc_dur = sum(arrp['original_duration'])
+    sum_local_offload_dur = sum(arro['total_duration'])
 
     # consider only cases that have task complete
     arro_t = arro[arro['type'] == 'task_complete']
 
+    ## this is dummy as offload does no work in real
     sum_offload_task_dur = sum(arro_t['task_duration'])
-    overall_dur = arrp['abs_end'][-1] - arrp['abs_start'][0]
 
-    result = {  'overall_dur_ms': overall_dur*1.0/1000,
-                'time_proc_ms': sum_proc_dur*1.0/1000,
-                'time_offload_ms': sum_offload_dur*1.0/1000,
-                'time_offload_task_ms': sum_offload_task_dur*1.0/1000,
+    ## this is correct
+    sum_offloaded_task = sum(arrp['num_offload'])
+    sum_offloaded_task_dur = sum(arrp['dur_offload'])
+
+    exp_dur = arrp['abs_end'][-1] - arrp['abs_start'][0]
+
+    original_deadline_misses = len(arrp[(arrp['abs_deadline'] - arrp['abs_start'] < arrp['original_duration'])])
+    deadline_misses = len(arrp[arrp['miss']==1])
+
+    result = {  'exp_dur_ms': exp_dur*1.0/1000,
+                'sum_original_proc_ms': sum_original_proc_dur*1.0/1000,
+                'sum_proc_ms': sum_proc_dur*1.0/1000,
+                'sum_local_offload_ms': sum_local_offload_dur*1.0/1000,
+                'sum_offloaded_task_ms': sum_offload_task_dur*1.0/1000,
+                'avg_proc_us': np.mean(arrp['duration']),
+                'avg_offloaded_task_us': np.mean(arrp['dur_offload']),
+                'original_deadline_misses': original_deadline_misses,
+                'deadline_misses': deadline_misses,
+                'Num_proc': len(arrp),
                 }
 
     pprint(result)
-    return result
+    return result, arrp, arro
+
+# because offloading is across cores
+# requires all logs to calculate cpu util
+def util_analysis(arrps):
+
+
+    for ix, arrp in enumerate(arrps):
+
+
+
+        original_deadline_misses = len(arrp[(arrp['abs_deadline'] - arrp['abs_start'] < arrp['original_duration'])])*100/len(arrp)
+        deadline_misses = len(arrp[arrp['miss']==1])*100/len(arrp)
+
+        sum_my_offload_task_dur = sum(arrps[(ix+1)%3]['dur_offload'])
+
+        exp_dur = arrp['abs_end'][-1] - arrp['abs_start'][0]
+        original_cpu_util = sum(np.minimum(arrp['original_duration'], arrp['abs_deadline'] - arrp['abs_start']))*100.0/exp_dur
+        cpu_util = (sum_my_offload_task_dur + sum(np.minimum(arrp['duration'], arrp['abs_deadline'] - arrp['abs_start'])))*100.0/exp_dur
+
+        print 'CPU %d, Util %2.2f --> %2.2f, Deadline miss %2.2f --> %2.2f'%(ix, original_cpu_util, cpu_util, original_deadline_misses, deadline_misses)
+
+        # pdb.set_trace()
 
 
 if __name__ == '__main__':
@@ -146,7 +197,7 @@ if __name__ == '__main__':
                                 arr = read_log_timing([fname])
                                 utils.write_pickle(arr, '../dump/gstat_exp%s_samp%d_trans%d_prior%d_sched%s_nant%d_nproc%d'%(exp, samples, idx, prior,sched,nants, nprocs))
 
-
+                        arrps, arros = [],[]
                         for idx, nproc in enumerate(range(nprocs)):
                             fname = '../log/exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d.log'%(exp, samples, idx, prior, sched, nants, nprocs)
 
@@ -157,16 +208,19 @@ if __name__ == '__main__':
                                 print 'File %s does not exist'%fname
                                 raise ValueError
                             else:
-                                arr_p = read_log_timing([fname])
-                                arr_o = read_off_log_timing([fname_o])
-                                utils.write_pickle(arr_p, '../dump/gstat_exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d'%(exp, samples, idx, prior,sched,nants, nprocs))
-                                utils.write_pickle(arr_o, '../dump/gstat_exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d'%(exp, samples, idx, prior,sched,nants, nprocs))
+                                arrp = read_proc_log_timing([fname])
+                                arro = read_off_log_timing([fname_o])
+                                utils.write_pickle(arrp, '../dump/gstat_exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d'%(exp, samples, idx, prior,sched,nants, nprocs))
+                                utils.write_pickle(arro, '../dump/gstat_exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d'%(exp, samples, idx, prior,sched,nants, nprocs))
 
 
                             # analyse the logs
-                            res = time_analysis(arr_p, arr_o)
+                            res, arrp, arro = time_analysis(arrp, arro)
 
+                            arrps.append(arrp)
+                            arros.append(arro)
 
+                        util_analysis(arrps)
 
 
 
