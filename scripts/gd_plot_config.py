@@ -6,10 +6,10 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 
 params = {
-   'axes.labelsize': 26+3,
-   'legend.fontsize': 25+3,
-   'xtick.labelsize': 23+3,
-   'ytick.labelsize': 23+3,
+   'axes.labelsize': 26,
+   'legend.fontsize': 25,
+   'xtick.labelsize': 23,
+   'ytick.labelsize': 23,
    'text.usetex': False,
    'figure.figsize': [4, 3],
     # 'figure.figsize': [18, 12],

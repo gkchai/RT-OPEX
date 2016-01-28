@@ -2,6 +2,7 @@
 
 //global variables
 static pthread_t *trans_threads;
+static pthread_t *timer_thread;
 static pthread_t *proc_threads;
 static pthread_t *offload_threads;
 
@@ -38,6 +39,7 @@ gd_rng_buff_t *rng_buff;
 static int offload_sleep[3];
 char exp_str[100];
 
+int T_T, T_P, N_P;
 
 void thread_common(pthread_t th, gd_thread_data_t *tdata){
 
@@ -365,7 +367,6 @@ void* trans_main(void* arg){
 			pthread_mutex_unlock(&task_ready_mutex[period%3]);
 		}
 
-
 		pthread_cond_signal(&subframe_cond[period%3]);
         pthread_mutex_unlock(&subframe_mutex[period%3]);
 
@@ -387,9 +388,9 @@ void* trans_main(void* arg){
         timing->actual_duration = timing->rel_end_time - timing->rel_start_time;
         timing->miss = (timing->rel_deadline - timing->rel_end_time >= 0) ? 0 : 1;
 
-        if (timing->actual_duration > 250){
-            log_critical("Transport overload. Thread[%d] Duration= %lu us. Reduce samples or increase threads",
-                tdata->ind, timing->actual_duration);
+        if (timing->actual_duration > 1000){
+            // log_critical("Transport overload. Thread[%d] Duration= %lu us. Reduce samples or increase threads",
+                // tdata->ind, timing->actual_duration);
         }
 
         clock_gettime(CLOCK_MONOTONIC, &t_now);
@@ -402,9 +403,7 @@ void* trans_main(void* arg){
 
         period ++;
         // only one transport thread should update global time
-        if (ind==0){
-            clock_gettime(CLOCK_MONOTONIC, &common_time[period%3]);
-        }
+
 
 
     }
@@ -434,6 +433,46 @@ void* trans_main(void* arg){
     pthread_exit(NULL);
 }
 
+
+void* timer_main(void* arg){
+
+    gd_thread_data_t *tdata = (gd_thread_data_t *) arg;
+
+    thread_common(pthread_self(), tdata);
+    long duration_usec = (tdata->duration * 1e6);
+    int nperiods = (int) ceil( duration_usec /
+            (double) timespec_to_usec(&tdata->period));
+    int period = 0;
+    struct timespec t_next, t_now;
+
+    t_next = tdata->main_start;
+
+
+    while(running && (period < nperiods)){
+
+        t_next = timespec_add(&t_next, &tdata->period);
+        clock_gettime(CLOCK_MONOTONIC, &t_now);
+        common_time[period%3] = t_now;
+
+        // check if deadline was missed
+        if (timespec_lower(&t_now, &t_next)){
+            // sleep for remaining time
+            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
+        }
+
+
+
+
+        period++;
+    }
+    pthread_exit(NULL);
+
+}
+
+
+
+
+
 void* proc_main(void* arg){
 
     // acquire lock, read subframes and process
@@ -462,7 +501,7 @@ void* proc_main(void* arg){
 
    long time_deadline, proc_actual_time, t_p, t_s, avail_time;
    int N_tot;
-   struct timespec t_temp, t_pall, t_ser;
+   struct timespec t_temp, t_pall, t_ser, t_now;
    // int* subframe_T = tdata->subframe_T;
    // int* subframe_t_p = tdata->subframe_t_p;
    // int* subframe_N_tot = tdata->subframe_N_tot;
@@ -534,11 +573,14 @@ void* proc_main(void* arg){
 
         time_deadline = timespec_to_usec(&t_deadline);
         // proc_actual_time  = subframe_T[period];
-        proc_actual_time  = 1500 + ((rand())%500);
+        // proc_actual_time  = 1200 + ((rand())%500);
+        proc_actual_time  = T_T;
         // N_tot = subframe_N_tot[period];
-        N_tot = 8;
+        // N_tot = 8;
+        N_tot = N_P;
         // t_p = subframe_t_p[period];
-        t_p = 100;
+        // t_p = 100;
+        t_p = T_P;
         t_s = proc_actual_time - t_p*N_tot;
         t_pall = usec_to_timespec(t_p);
         t_ser = usec_to_timespec(t_s);
@@ -576,17 +618,37 @@ void* proc_main(void* arg){
                     offloaded_flag = 1;
 
             }
-            // sleep for pall_time
+            // 0.0 sleep for pall_time
+            // 0.1 add some operations to not completely sleep
             t_temp = timespec_add(&t_temp, &t_pall);
-            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp, NULL);
+
+            clock_gettime(CLOCK_MONOTONIC, &t_now);
+            while (timespec_lower(&t_now, &t_temp)){
+                clock_gettime(CLOCK_MONOTONIC, &t_now);
+            }
+
+            // clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp, NULL);
             N_rem --;
         }
 
         if (deadline_miss == 1){
+
+            // clock_gettime(CLOCK_MONOTONIC, &t_now);
+            // while (timespec_lower(&t_now, &t_deadline)){
+            //     clock_gettime(CLOCK_MONOTONIC, &t_now);
+            // }
+
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_deadline, NULL);
+
+
         }else{
             clock_gettime(CLOCK_MONOTONIC, &t_temp);
             t_temp = timespec_add(&t_temp, &t_ser);
+
+            // clock_gettime(CLOCK_MONOTONIC, &t_now);
+            // while (timespec_lower(&t_now, &t_temp)){
+            //     clock_gettime(CLOCK_MONOTONIC, &t_now);
+            // }
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp, NULL);
         }
 
@@ -703,9 +765,12 @@ int main(int argc, char** argv){
     int priority = 99;
     int sched = SCHED_FIFO;
     sprintf(exp_str, "offload");
+    T_T = 1500;
+    N_P = 8;
+    T_P = 100;
 
     char c;
-    while ((c = getopt (argc, argv, "h::n:s:d:p:S:e:D:")) != -1) {
+    while ((c = getopt (argc, argv, "h::n:s:d:p:S:e:D:X:Y:Z:")) != -1) {
         switch (c) {
             case 'n':
               num_nodes = atoi(optarg);
@@ -725,6 +790,16 @@ int main(int argc, char** argv){
                 log_error("Unsupported priority!\n");
                 exit(-1);
               }
+              break;
+
+            case 'X':
+              T_T = atoi(optarg);
+              break;
+            case 'Y':
+              T_P = atoi(optarg);
+              break;
+            case 'Z':
+              N_P = atoi(optarg);
               break;
 
             case 'S':
@@ -822,8 +897,10 @@ int main(int argc, char** argv){
 
 	/**************************************************************************/
     trans_threads = malloc(trans_nthreads*sizeof(pthread_t));
-    gd_thread_data_t *trans_tdata;
+    gd_thread_data_t *trans_tdata, *timer_tdata;
     trans_tdata = malloc(trans_nthreads*sizeof(gd_thread_data_t));
+    timer_tdata = malloc(1*sizeof(gd_thread_data_t));
+
 
     proc_threads = malloc(proc_nthreads*sizeof(pthread_t));
     gd_thread_data_t *proc_tdata;
@@ -851,6 +928,17 @@ int main(int argc, char** argv){
     gd_trans_initialize(node_socks, num_nodes);
     gd_trans_trigger();
 
+
+    timer_tdata->duration = duration;
+    timer_tdata->sched_policy = sched;
+    timer_tdata->sched_prio = priority;
+    timer_tdata->deadline = usec_to_timespec(500);
+    timer_tdata->period = usec_to_timespec(1000);
+    timer_tdata->cpuset = malloc(sizeof(cpu_set_t));
+    CPU_SET( 2, timer_tdata->cpuset);
+
+
+
     for(i= 0; i < trans_nthreads; i++){
 
         trans_tdata[i].ind = i;
@@ -864,7 +952,7 @@ int main(int argc, char** argv){
         trans_tdata[i].log_handler = fopen(tmp_str, "w");
         trans_tdata[i].sched_prio = priority;
         trans_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
-        CPU_SET( 20 +i%2, trans_tdata[i].cpuset);
+        CPU_SET( 15 +i, trans_tdata[i].cpuset);
 
         trans_tdata[i].conn_desc.node_id = i;
         trans_tdata[i].conn_desc.node_sock = node_socks[i];
@@ -874,6 +962,7 @@ int main(int argc, char** argv){
         trans_tdata[i].conn_desc.buffer = buffer;
         trans_tdata[i].conn_desc.buffer_id = 1;
     }
+
 
 
     for(i= 0; i < proc_nthreads; i++){
@@ -888,7 +977,7 @@ int main(int argc, char** argv){
         proc_tdata[i].log_handler = fopen(tmp_str, "w");
         proc_tdata[i].sched_prio = priority;
         proc_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
-        CPU_SET( 8+2*i, proc_tdata[i].cpuset);
+        CPU_SET( 10+i, proc_tdata[i].cpuset);
 
 		proc_idle[i] = 0;
         proc_trigger[i] = 0;
@@ -911,7 +1000,7 @@ int main(int argc, char** argv){
         offload_tdata[i].log_handler = fopen(tmp_str, "w");
         offload_tdata[i].sched_prio = priority;
         offload_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
-        CPU_SET( 8+2*i, offload_tdata[i].cpuset); //pin the offloading and processing threads on the same cores
+        CPU_SET( 10+i, offload_tdata[i].cpuset); //pin the offloading and processing threads on the same cores
         offload_sleep[i] = 1;
     }
 
@@ -919,6 +1008,9 @@ int main(int argc, char** argv){
     struct timespec t_start;
     // starting time
     clock_gettime(CLOCK_MONOTONIC, &t_start);
+    timer_tdata->main_start = t_start;
+    thread_ret = pthread_create(&timer_thread, NULL, timer_main, timer_tdata);
+
 
     log_notice("Starting trans threads");
     // start threads
@@ -956,6 +1048,9 @@ int main(int argc, char** argv){
             exit(-1);
         }
     }
+
+
+    pthread_join(timer_thread, NULL);
 
 
     for (i = 0; i < trans_nthreads; i++)

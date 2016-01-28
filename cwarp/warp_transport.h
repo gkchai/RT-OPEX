@@ -99,7 +99,7 @@
 #define TRANSPORT_SLEEP_TIME            10000
 #define TRANSPORT_FLAG_ROBUST           0x0001
 #define TRANSPORT_PADDING_SIZE          2
-#define TRANSPORT_TIMEOUT               1000000
+#define TRANSPORT_TIMEOUT               2000000
 #define TRANSPORT_MAX_RETRY             50
 
 // Sample defines

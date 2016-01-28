@@ -135,20 +135,18 @@ def time_analysis(arrp, arro):
                 'Num_proc': len(arrp),
                 }
 
-    pprint(result)
+    # pprint(result)
     return result, arrp, arro
 
 # because offloading is across cores
 # requires all logs to calculate cpu util
 def util_analysis(arrps):
 
-
+    cpu_u, cpu_u_orig, dead_miss_orig, dead_miss = [], [], [], []
     for ix, arrp in enumerate(arrps):
 
-
-
-        original_deadline_misses = len(arrp[(arrp['abs_deadline'] - arrp['abs_start'] < arrp['original_duration'])])*100/len(arrp)
-        deadline_misses = len(arrp[arrp['miss']==1])*100/len(arrp)
+        original_deadline_misses = len(arrp[(arrp['abs_deadline'] - arrp['abs_start'] < arrp['original_duration'])])*100.0/len(arrp)
+        deadline_misses = len(arrp[arrp['miss']==1])*100.0/len(arrp)
 
         sum_my_offload_task_dur = sum(arrps[(ix+1)%3]['dur_offload'])
 
@@ -156,16 +154,70 @@ def util_analysis(arrps):
         original_cpu_util = sum(np.minimum(arrp['original_duration'], arrp['abs_deadline'] - arrp['abs_start']))*100.0/exp_dur
         cpu_util = (sum_my_offload_task_dur + sum(np.minimum(arrp['duration'], arrp['abs_deadline'] - arrp['abs_start'])))*100.0/exp_dur
 
-        print 'CPU %d, Util %2.2f --> %2.2f, Deadline miss %2.2f --> %2.2f'%(ix, original_cpu_util, cpu_util, original_deadline_misses, deadline_misses)
+        print 'CPU %d, Util %2.2f --> %2.2f, Deadline miss %2.5f --> %2.5f'%(ix, original_cpu_util, cpu_util, original_deadline_misses, deadline_misses)
 
-        # pdb.set_trace()
+        cpu_u_orig.append(original_cpu_util)
+        cpu_u.append(cpu_util)
+        dead_miss_orig.append(original_deadline_misses)
+        dead_miss.append(deadline_misses)
+
+
+    result = [cpu_u, cpu_u_orig, dead_miss_orig, dead_miss]
+
+    return result
+
+
+def main(exp, samples, nants, nprocs, prior, sched, T_T, T_P, N_P):
+
+
+    arrts = []
+    for idx, nant in enumerate(range(nants)):
+        fname = '../log/exp%s_samp%d_trans%d_prior%d_sched%s_nant%d_nproc%d.log'%(exp, samples, idx, prior,sched, nants, nprocs)
+        if not os.path.isfile(fname):
+            print 'File %s does not exist'%fname
+            raise ValueError
+        else:
+            arr = read_log_timing([fname])
+            utils.write_pickle(arr, '../dump/gstat_exp%s_samp%d_trans%d_prior%d_sched%s_nant%d_nproc%d_T_T%d_T_P%d_N_P%d'%(exp, samples, idx, prior, sched,nants, nprocs, T_T, T_P, N_P))
+
+        arrts.append(arr)
+        print 'avg transport duration radio %d is %f us'%(idx, np.mean(arr['duration']))
+
+
+    arrps, arros = [],[]
+    for idx, nproc in enumerate(range(nprocs)):
+        fname = '../log/exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d.log'%(exp, samples, idx, prior, sched, nants, nprocs)
+
+        fname_o = '../log/exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d.log'%(exp, samples, idx, prior, sched, nants, nprocs)
+
+
+        if (not os.path.isfile(fname)) or (not os.path.isfile(fname_o)):
+            print 'File %s does not exist'%fname
+            raise ValueError
+        else:
+            arrp = read_proc_log_timing([fname])
+            arro = read_off_log_timing([fname_o])
+            utils.write_pickle(arrp, '../dump/gstat_exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d_T_T%d_T_P%d_N_P%d'%(exp, samples, idx, prior, sched,nants, nprocs, T_T, T_P, N_P))
+            utils.write_pickle(arro, '../dump/gstat_exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d_T_T%d_T_P%d_N_P%d'%(exp, samples, idx, prior, sched,nants, nprocs, T_T, T_P, N_P))
+
+
+        # analyse the logs
+        res, arrp, arro = time_analysis(arrp, arro)
+
+        arrps.append(arrp)
+        arros.append(arro)
+
+    res_u = util_analysis(arrps)
+    return res_u
+
 
 
 if __name__ == '__main__':
 
+
     exp_range = ['offload']
-    samples_range = [1000]
-    prior_range = [99]
+    samples_range = [15000]
+    prior_range = [10]
     # sched_range = ['SCHED_FIFO', 'SCHED_RR', 'SCHED_OTHER']
     sched_range = ['SCHED_FIFO']
     nant_range = [4]
@@ -188,40 +240,5 @@ if __name__ == '__main__':
                                     'nproc':nprocs,
                                     }
 
-                        for idx, nant in enumerate(range(nants)):
-                            fname = '../log/exp%s_samp%d_trans%d_prior%d_sched%s_nant%d_nproc%d.log'%(exp, samples, idx, prior,sched, nants, nprocs)
-                            if not os.path.isfile(fname):
-                                print 'File %s does not exist'%fname
-                                raise ValueError
-                            else:
-                                arr = read_log_timing([fname])
-                                utils.write_pickle(arr, '../dump/gstat_exp%s_samp%d_trans%d_prior%d_sched%s_nant%d_nproc%d'%(exp, samples, idx, prior,sched,nants, nprocs))
-
-                        arrps, arros = [],[]
-                        for idx, nproc in enumerate(range(nprocs)):
-                            fname = '../log/exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d.log'%(exp, samples, idx, prior, sched, nants, nprocs)
-
-                            fname_o = '../log/exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d.log'%(exp, samples, idx, prior, sched, nants, nprocs)
-
-
-                            if (not os.path.isfile(fname)) or (not os.path.isfile(fname_o)):
-                                print 'File %s does not exist'%fname
-                                raise ValueError
-                            else:
-                                arrp = read_proc_log_timing([fname])
-                                arro = read_off_log_timing([fname_o])
-                                utils.write_pickle(arrp, '../dump/gstat_exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d'%(exp, samples, idx, prior,sched,nants, nprocs))
-                                utils.write_pickle(arro, '../dump/gstat_exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d'%(exp, samples, idx, prior,sched,nants, nprocs))
-
-
-                            # analyse the logs
-                            res, arrp, arro = time_analysis(arrp, arro)
-
-                            arrps.append(arrp)
-                            arros.append(arro)
-
-                        util_analysis(arrps)
-
-
-
+                        main(exp, samples, nants, prior, nprocs, sched, T_T, T_P, N_P)
 
