@@ -19,9 +19,9 @@ qfactor = [2,2,2,2,2,
           6,6,6,6,6,
           6,6,6]
 
-dur = 10
+dur = 100
 T_P = 93
-n_ants = 14
+n_ants = 2
 N_P = n_ants
 turbo_iter = 2
 
@@ -32,6 +32,8 @@ pooling = 1
 # mcs_range = [5, 10, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]
 mcs_range = [16]
 
+def mcs_to_turbo(mcs):
+    return int(bitspsym[mcs]*96.8)
 
 def mcs_to_time(mcs):
     dl_time = 0
@@ -61,6 +63,7 @@ for mcs in mcs_range:
 
 
 cpu_u_orig, dead_miss_orig, res_us = [], [], []
+avg_procs, avg_offloads = [], []
 
 arrts = []
 for mcs in mcs_range:
@@ -78,7 +81,7 @@ for mcs in mcs_range:
                         args = ' -n %d -s 15000 -d %d -p 10 -S F -e O -D 0 -X %d -Y %d -Z %d'%(nants, dur, T_T, T_P, N_P)
                         print args
                         subprocess.check_call('../src/gd.o'+args, shell=True)
-                        main(exp, samples, nants, nprocs, prior, sched, T_T, T_P, N_P)
+                        _,avg_proc,avg_offload =  main(exp, samples, nants, nprocs, prior, sched, T_T, T_P, N_P)
 
                         for idx, ntrans in enumerate(range(nants)):
 
@@ -94,7 +97,7 @@ for mcs in mcs_range:
                             arro = utils.read_pickle('../dump/gstat_exp%s_samp%d_offload%d_prior%d_sched%s_nant%d_nproc%d_T_T%d_T_P%d_N_P%d'%(exp, samples, idx, prior, sched,nants, nprocs, T_T, T_P, N_P))
 
                             # analyse the logs
-                            res, arrp, arro = time_analysis(arrp, arro)
+                            res, arrp, arro, _, _ = time_analysis(arrp, arro)
 
                             arrts.append([arrt['duration']])
                             arrps.append(arrp)
@@ -104,9 +107,12 @@ for mcs in mcs_range:
                         res_u = util_analysis(arrps)
                         res_us.append(res_u)
 
-                        cpu_u_orig.append(sum(res_u[0]))
+                        cpu_u_orig.append(sum(res_u[1]))
                         dead_miss_orig.append(np.mean(res_u[2]))
+                        avg_procs.append(avg_proc)
+                        avg_offloads.append(avg_offload)
 
 
-utils.write_pickle(res_us, '../dump/res_us_%d.pkl'%n_ants)
-utils.write_pickle(arrts, '../dump/trans_%d.pkl'%n_ants)
+# utils.write_pickle(res_us, '../dump/res_us_%d.pkl'%n_ants)
+# utils.write_pickle(arrts, '../dump/trans_%d.pkl'%n_ants)
+utils.write_pickle([avg_procs, avg_offloads], '../dump/proc_offload_%d.pkl'%n_ants)

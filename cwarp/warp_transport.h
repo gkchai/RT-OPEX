@@ -4,8 +4,8 @@
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
-// #include "../src/complex.h"
-#include <complex.h>
+#include "my_complex.h"
+// #include <complex.h>
 #include <time.h>
 //#include <pthread.h>
 #include <assert.h>
@@ -185,7 +185,7 @@ typedef struct
 
 
 struct thread_data{
-    double complex* samples;
+    double my_complex* samples;
     int handle;
     char* readIQ_buffer;
     char* ip_addr;
@@ -241,7 +241,7 @@ uint32       endian_swap_32(uint32 value);
 
 int sendData(int handle, char* buffer, int length, char* ip_addr, int port);
 int receiveData(char* buffer, int handle, int length);
-int readSamples(double complex* samples, int handle, char* buffer, int length, char* ip_addr, int port, int num_samples, uint32 buffer_id, int start_sample, int max_length, int num_pkts);
+int readSamples(double my_complex* samples, int handle, char* buffer, int length, char* ip_addr, int port, int num_samples, uint32 buffer_id, int start_sample, int max_length, int num_pkts);
 int writeSamples(int handle, char* buffer, int max_length, char* ip_addr, int port, int num_samples, uint16* sample_I_buffer, uint16* sample_Q_buffer, int buffer_id, int start_sample, int num_pkts, int max_samples, int hw_ver);
 
 

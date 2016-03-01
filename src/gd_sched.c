@@ -34,6 +34,8 @@ static int subframe_avail[3];
 static int running;
 static int debug_trans = 0;
 
+static int check_dirty[15000];
+
 gd_rng_buff_t *rng_buff;
 
 static int offload_sleep[3];
@@ -112,7 +114,7 @@ void* offload_main(void* arg){
     timings = (gd_off_timing_meta_t*) malloc ( nperiods * sizeof(gd_off_timing_meta_t));
     gd_off_timing_meta_t* timing;
     struct timespec off_start, off_end, off_task_start, off_task_end;
-    struct timespec t_current;
+    struct timespec t_current, t_temp;
     t_current = tdata->main_start;
 	int period = 0;
     char type[30];
@@ -145,6 +147,8 @@ void* offload_main(void* arg){
 		pthread_mutex_unlock(&offload_mutex[ind]);
 
 
+
+
         clock_gettime(CLOCK_MONOTONIC, &off_start);
 
 		//after processing thread finishes, do we need offloading thread thread hanging?
@@ -169,6 +173,15 @@ void* offload_main(void* arg){
 		if (task_ready_flag[ind]==1){
 			my_offload_flag = 1;
 			log_debug("let's do some offloading :) thread[%d], is loc proc idle[%d]?",ind,proc_idle[ind]);
+
+            // int a[15000];
+            // memcpy(a, check_dirty, 15000*sizeof(int));
+            // a[2000]= 10;
+            // a[2]= 10;
+            // clock_gettime(CLOCK_MONOTONIC, &t_temp);
+
+            // printf("I am offload %d Thread. %lu %d\n", ind, timespec_to_usec(&t_temp), a[20]);
+
 		}
 
 		if (task_ready_flag[ind]==2){
@@ -501,7 +514,7 @@ void* proc_main(void* arg){
 
    long time_deadline, proc_actual_time, t_p, t_s, avail_time;
    int N_tot;
-   struct timespec t_temp, t_pall, t_ser, t_now;
+   struct timespec t_temp, t_pall, t_ser, t_now, t_temp1;
    // int* subframe_T = tdata->subframe_T;
    // int* subframe_t_p = tdata->subframe_t_p;
    // int* subframe_N_tot = tdata->subframe_N_tot;
@@ -613,7 +626,12 @@ void* proc_main(void* arg){
                     pthread_mutex_lock(&task_ready_mutex[offload_ind]);
                     log_debug("sending %d loops to be offloaded from: %d to: %d",N_off,id,offload_ind);
                     task_ready_flag[offload_ind]=1;
+
+
                     pthread_cond_signal(&task_ready_cond[offload_ind]);
+                    clock_gettime(CLOCK_MONOTONIC, &t_temp1);
+                    // printf("I am offloading to %d Thread. %lu\n", offload_ind , timespec_to_usec(&t_temp1));
+
                     pthread_mutex_unlock(&task_ready_mutex[offload_ind]);
                     offloaded_flag = 1;
 

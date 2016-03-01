@@ -724,7 +724,7 @@ int receiveData(char* buffer, int handle, int length){
         //     ?? cmds_used    (int)         - Number of transport commands used to obtain samples
 
 
-int readSamples(double complex* samples, int handle, char* buffer, int length, char* ip_addr, int port, int num_samples, uint32 buffer_id, int start_sample, int max_length, int num_pkts){
+int readSamples(double my_complex* samples, int handle, char* buffer, int length, char* ip_addr, int port, int num_samples, uint32 buffer_id, int start_sample, int max_length, int num_pkts){
 
 #ifdef _DEBUG_
             printf("Function : TRANSPORT_READ_IQ \ TRANSPORT_READ_RSSI\n");

@@ -136,7 +136,7 @@ def time_analysis(arrp, arro):
                 }
 
     # pprint(result)
-    return result, arrp, arro
+    return result, arrp, arro, np.mean(arrp['duration']), np.mean(arrp['dur_offload'])
 
 # because offloading is across cores
 # requires all logs to calculate cpu util
@@ -181,10 +181,11 @@ def main(exp, samples, nants, nprocs, prior, sched, T_T, T_P, N_P):
             utils.write_pickle(arr, '../dump/gstat_exp%s_samp%d_trans%d_prior%d_sched%s_nant%d_nproc%d_T_T%d_T_P%d_N_P%d'%(exp, samples, idx, prior, sched,nants, nprocs, T_T, T_P, N_P))
 
         arrts.append(arr)
-        print 'avg transport duration radio %d is %f us'%(idx, np.mean(arr['duration']))
+        print 'avg transport duration radio %d is %f us %f'%(idx, np.mean(arr['duration']), np.std(arr['duration']))
 
 
     arrps, arros = [],[]
+    avg_procs, avg_offloads = [], []
     for idx, nproc in enumerate(range(nprocs)):
         fname = '../log/exp%s_samp%d_proc%d_prior%d_sched%s_nant%d_nproc%d.log'%(exp, samples, idx, prior, sched, nants, nprocs)
 
@@ -202,13 +203,15 @@ def main(exp, samples, nants, nprocs, prior, sched, T_T, T_P, N_P):
 
 
         # analyse the logs
-        res, arrp, arro = time_analysis(arrp, arro)
+        res, arrp, arro, avg_proc, avg_offload = time_analysis(arrp, arro)
 
         arrps.append(arrp)
         arros.append(arro)
+        avg_procs.append(avg_proc)
+        avg_offloads.append(avg_offload)
 
     res_u = util_analysis(arrps)
-    return res_u
+    return res_u, np.mean(avg_procs), np.mean(avg_offloads)
 
 
 

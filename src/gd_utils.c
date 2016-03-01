@@ -1,4 +1,5 @@
 #include "gd_utils.h"
+#include "math.h"
 
 unsigned int
 timespec_to_msec(struct timespec *ts)
@@ -257,3 +258,8 @@ int req_offload_loops(long T, long t_p, long t_s, int N_rem){
     return N_off;
 }
 
+int calc_num_cores(int num_radios, int lmax){
+
+    // greedy schedule: N = M*ceil(Lmax)
+    return ceil(num_radios*((double)(lmax/1000)));
+}

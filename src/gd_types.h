@@ -5,7 +5,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <sched.h>
-#include "complex.h"
+#include "../cwarp/my_complex.h"
 
 
 typedef struct _gd_conn_desc_t{
@@ -15,7 +15,7 @@ int host_id;
 int buffer_id;
 int num_samples;
 int start_sample;
-double complex* buffer;
+double my_complex* buffer;
 
 } gd_conn_desc_t;
 
@@ -25,7 +25,7 @@ int head;
 int tail;
 int nitems;
 int size;
-double complex* buff;
+double my_complex* buff;
 int samples_per_item;
 
 } gd_rng_buff_t;

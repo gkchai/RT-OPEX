@@ -110,5 +110,7 @@ ftrace_write(int mark_fd, const char *fmt, ...);
 
 int req_offload_loops(long T, long t_p, long t_s, int N_rem);
 
+int calc_num_cores(int num_radios, int lmax);
+
 
 #endif

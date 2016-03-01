@@ -87,7 +87,7 @@ void sendTrigger(){
  Description: read IQ samples from a given WARP node and store them in a given array
 
  Arguments:
-	samples (double complex*) 		- pointer to sample array
+	samples (double my_complex*) 		- pointer to sample array
 	start_sample (int)				- offset to the first sample to read
 	num_samples (int)				- number of samples to read (between 1 and 2^15)
 	node_sock (int)					- identifier of the node socket
@@ -95,7 +95,7 @@ void sendTrigger(){
 	buffer_id (int)					- identifier of the buffer
 	host_id (int)					- identifier of the host
 */
-void readIQ(double complex* samples, int start_sample, int num_samples, int node_sock, int node_id, int buffer_id, int host_id){
+void readIQ(double my_complex* samples, int start_sample, int num_samples, int node_sock, int node_id, int buffer_id, int host_id){
 
 	assert(initialized==1);
 
@@ -119,7 +119,7 @@ void readIQ(double complex* samples, int start_sample, int num_samples, int node
  Description: write IQ samples to a given WARP node from a given array
 
  Arguments:
-	samples (double complex*) 		- pointer to sample array
+	samples (double my_complex*) 		- pointer to sample array
 	start_sample (int)				- offset to the first sample to write
 	num_samples (int)				- number of samples to write (between 1 and 2^15)
 	node_sock (int)					- identifier of the node socket
@@ -127,7 +127,7 @@ void readIQ(double complex* samples, int start_sample, int num_samples, int node
 	buffer_id (int)					- identifier of the buffer
 	host_id (int)					- identifier of the host
 */
-void writeIQ(double complex* samples, int start_sample, int num_samples, int node_sock, int node_id, int buffer_id, int host_id){
+void writeIQ(double my_complex* samples, int start_sample, int num_samples, int node_sock, int node_id, int buffer_id, int host_id){
 
 	// assert(initialized==1);
 

@@ -2,7 +2,6 @@
 #ifndef _GD_SCHED_H_
 #define _GD_SCHED_H_
 
-
 #include <sched.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -12,7 +11,7 @@
 #include <sched.h>
 #include <pthread.h>
 #include <signal.h>
-#include <complex.h>
+#include "../cwarp/my_complex.h"
 #include <assert.h>
 #include <sys/mman.h>  /* for memlock */
 #include <unistd.h>
