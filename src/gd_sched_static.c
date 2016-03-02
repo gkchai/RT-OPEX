@@ -19,6 +19,7 @@ static int num_ants;
 static int num_cores_bs;
 
 static pthread_mutex_t *subframe_mutex;
+static pthread_mutex_t *state_mutex;
 static pthread_cond_t *subframe_cond;
 static struct timespec *common_time;
 static struct timespec common_time_ref;
@@ -355,6 +356,8 @@ void* proc_main(void* arg){
 		printf("********************START\n");
         for (int cur = 0; cur<proc_nthreads;cur++) {
 			//mutex lock for state[cur]
+
+			pthread_mutex_lock(&state_mutex[cur]);
 		 	avail_time = state[cur] - timespec_to_usec(&t_now);
 		 	if (avail_time<0) {
 		 		avail_time = 0;
@@ -368,6 +371,11 @@ void* proc_main(void* arg){
 		 	//printf("timings: avail_time:%li, state[cur]:%li, now:%li\n",avail_time,state[cur],timespec_to_usec(&t_now));
 			}
 			//update state[cur] to be -1
+			if (noff>0) {
+				state[cur]=-1;
+			}
+			pthread_mutex_unlock(&state_mutex[cur]);
+			
 			//mutex unlock for state[cur]
 		 }
 
@@ -643,6 +651,7 @@ int main(int argc, char** argv){
 
 
     subframe_mutex = (pthread_mutex_t*)malloc(proc_nthreads*sizeof(pthread_mutex_t));
+    state_mutex = (pthread_mutex_t*)malloc(proc_nthreads*sizeof(pthread_mutex_t));
     subframe_cond = (pthread_cond_t*)malloc(proc_nthreads*sizeof(pthread_cond_t));
     common_time = (struct timespec*)malloc((num_cores_bs)*sizeof(struct timespec));
     subframe_avail = (int *)malloc(proc_nthreads*sizeof(int));
@@ -655,6 +664,7 @@ int main(int argc, char** argv){
     for (i=0; i<proc_nthreads; i++){
         subframe_avail[i] = 0;
         pthread_mutex_init(&subframe_mutex[i], NULL);
+        pthread_mutex_init(&state_mutex[i], NULL);
         pthread_cond_init(&subframe_cond[i], NULL);
     }
 
