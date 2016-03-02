@@ -273,7 +273,7 @@ void* proc_main(void* arg){
             (double) timespec_to_usec(&tdata->period));
 
     //nperiods reduce a little to prevents trans finishing before proc; ugly fix
-    nperiods-=100;
+    nperiods-=500;
 
     timings = (gd_proc_timing_meta_t*) malloc ( nperiods * sizeof(gd_proc_timing_meta_t));
     gd_proc_timing_meta_t *timing;
@@ -305,11 +305,30 @@ void* proc_main(void* arg){
 	//	11: j   j + 1
 	//	12: end while
 
+    struct timespec each =  usec_to_timespec(1000);
+
     while(running && (period < nperiods)){
 
 
         t_deadline = timespec_add(&common_time_ref, &tdata->deadline);
-        t_next = timespec_add(&common_time_ref, &tdata->period);
+        t_temp1 = timespec_add(&common_time_ref, &each);
+
+        // if (((timespec_lower(&common_time_ref,&t_next) == 1)) && (period >50)){
+        //     // printf("Timer %d was lagging %d = %li, %li\n", id, period, timespec_to_usec(&common_time_ref), timespec_to_usec(&t_next));
+        //     // t_next = t_temp1;
+        //     // clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp1, NULL);
+        // }
+
+        // t_temp = t_next;
+        // // t_next = timespec_add(&common_time_ref, &tdata->period);
+        // int diff = timespec_to_usec(&common_time_ref) - timespec_to_usec(&t_temp);
+        // if (diff < 1800 || diff > 2200){
+        //     printf("Diff = %d in period %d\n",diff, period);
+        // }
+
+        t_next = timespec_add(&t_next, &tdata->period);
+
+
 
         // wait for the transport thread to wake me
 		// printf("what's value of subframe_avail[id]:%d\n",subframe_avail[id]);
@@ -377,16 +396,15 @@ void* proc_main(void* arg){
         if (rem_time > 50){
             // printf("I am setting state[id]\n");
 			state[id]=timespec_to_usec(&t_next);
-            // wait for received task or for transport
 
-            while( (migrate_avail[id] != 1) && ( timespec_to_usec(&common_time_ref) + num_cores_bs*1000 ==  timespec_to_usec(&t_next) )) {
-    //             // do nothing
+
+            // wait for received task or for the remaining time
+            clock_gettime(CLOCK_MONOTONIC, &t_now);
+            while( (migrate_avail[id] != 1) && ( timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next) )) {
 				// printf("************************************************SLEEEEEEEEPING\n");
+             clock_gettime(CLOCK_MONOTONIC, &t_now);
              }
 
-            if (timespec_to_usec(&common_time[subframe_id]) > timespec_to_usec(&t_next)-10){
-                // do the migration
-            }
         }
         state[id]=-id;
 
@@ -394,10 +412,8 @@ void* proc_main(void* arg){
         // task_all();
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
-        if (timespec_lower(&t_now, &t_next)){
+        if (timespec_lower(&t_now, &t_next)==1){
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
-        }else{
-            // printf("Proc %d too slow\n",id);
         }
 
         //check if result is ready
