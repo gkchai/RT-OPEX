@@ -295,19 +295,30 @@ void* proc_main(void* arg){
         clock_gettime(CLOCK_MONOTONIC, &t_now);
         //check for migration opportunity
         if (state[id] != -1){
-            task_fft();
         }else{
             avail_time = state[id] - timespec_to_usec(&t_now);
         }
 
+        task_fft();
 
-        clock_gettime(CLOCK_MONOTONIC, &t_now);
+
+
         //check for migration opportunity
         if (state[id] != -1){
-            task_demod();
+
+            // task_demod();
         }else{
             avail_time = state[id] - timespec_to_usec(&t_now);
         }
+
+        clock_gettime(CLOCK_MONOTONIC, &t_now);
+            // task_demod();
+        task_fft();
+
+        clock_gettime(CLOCK_MONOTONIC, &t_temp);
+        printf("Demodulation time = %d us\n", timespec_to_usec(&t_temp) - timespec_to_usec(&t_now));
+
+
 
         clock_gettime(CLOCK_MONOTONIC, &t_now);
         // check if there is enough time to decode else kill
@@ -318,7 +329,6 @@ void* proc_main(void* arg){
         }else{
             task_decode();
         }
-
 
         // there is time to receive migrated task
         clock_gettime(CLOCK_MONOTONIC, &t_now);
@@ -337,7 +347,6 @@ void* proc_main(void* arg){
         else{
             state[id]=-1;
         }
-
 
 
         // task_all();
