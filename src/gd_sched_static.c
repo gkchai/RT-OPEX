@@ -33,6 +33,7 @@ static int mcs;
 
 gd_rng_buff_t *rng_buff;
 int *deadline_miss_flag;
+int *mcs_data;
 
 
 char exp_str[100];
@@ -244,10 +245,7 @@ void* timer_main(void* arg){
         if (timespec_lower(&t_now, &t_next)){
             // sleep for remaining time
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
-        }else{
-            printf("timer is screwed\n");
         }
-
         period++;
     }
     running = 0;
@@ -284,55 +282,17 @@ void* proc_main(void* arg){
     int deadline_miss=0;
 
     long time_deadline, proc_actual_time, avail_time;
-    struct timespec t_temp, t_now, t_temp1;
+    struct timespec t_temp, t_now;
     log_notice("Starting proc thread %d nperiods %d %lu", id, nperiods, timespec_to_usec(&t_offset));
 
     int bs_id = (int)(id/num_cores_bs);
     int subframe_id =  id%(num_cores_bs);
     log_notice("checking subframe mutex %d", bs_id*num_cores_bs + subframe_id);
 
-	//	1: Input: P subtasks, each subtask has tp proc. time
-	//  2: Input: M cores, each core has fcj > 0 of free time
-	//  3: N   P . # of left subtasks (not offloaded)
-	//  4: maxoff   0 . max # of offloaded subtasks per core
-	//	5: while N > 1 and j  M do
-	//	6: limoff = b fcj
-	//	tp c . # of subtasks can be offloaded
-	//	7: noff   min(N 􀀀 maxoff ; limoff ; bN
-	//			2 c)
-	//	8: maxoff   max(noff ; maxoff )
-	//	9: Offload noff subtasks to jth core
-	//	10: N   N 􀀀 noff
-	//	11: j   j + 1
-	//	12: end while
-
-    struct timespec each =  usec_to_timespec(1000);
-
     while(running && (period < nperiods)){
 
-
-        t_deadline = timespec_add(&common_time_ref, &tdata->deadline);
-        t_temp1 = timespec_add(&common_time_ref, &each);
-
-        // if (((timespec_lower(&common_time_ref,&t_next) == 1)) && (period >50)){
-        //     // printf("Timer %d was lagging %d = %li, %li\n", id, period, timespec_to_usec(&common_time_ref), timespec_to_usec(&t_next));
-        //     // t_next = t_temp1;
-        //     // clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp1, NULL);
-        // }
-
-        // t_temp = t_next;
-        // // t_next = timespec_add(&common_time_ref, &tdata->period);
-        // int diff = timespec_to_usec(&common_time_ref) - timespec_to_usec(&t_temp);
-        // if (diff < 1800 || diff > 2200){
-        //     printf("Diff = %d in period %d\n",diff, period);
-        // }
-
         t_next = timespec_add(&t_next, &tdata->period);
-
-
-
         // wait for the transport thread to wake me
-		// printf("what's value of subframe_avail[id]:%d\n",subframe_avail[id]);
         pthread_mutex_lock(&subframe_mutex[id]);
         while (!(subframe_avail[id] == num_ants)){
                     pthread_cond_wait(&subframe_cond[id], &subframe_mutex[id]);
@@ -342,54 +302,16 @@ void* proc_main(void* arg){
 
 
         /****** do LTE processing *****/
-
-
-
         clock_gettime(CLOCK_MONOTONIC, &proc_start);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
-		//check for migration opportunity
-		//iterating over the processing threads and studying which ones are available for migration
-		int nOffload = 0;
-		int max_off = 0;
-		int tasksRemain = 12*num_ants;
-		printf("********************START\n");
-        for (int cur = 0; cur<proc_nthreads;cur++) {
-			//mutex lock for state[cur]
 
-			pthread_mutex_lock(&state_mutex[cur]);
-		 	avail_time = state[cur] - timespec_to_usec(&t_now);
-		 	if (avail_time<0) {
-		 		avail_time = 0;
-		 	}
-		 	int lim_off = floor(avail_time/sub_fft_time);
-		 	int noff = MIN(tasksRemain-max_off,MIN(lim_off,floor(tasksRemain/2)));
-		 	max_off= MAX(max_off,noff);
-		 	tasksRemain = tasksRemain-noff;
-		 	if (avail_time>0) {
-		 	printf("I am offloading things: noff:%d to core:%d, maxoff:%d, limoff:%d, remain:%d\n",noff,cur,max_off,lim_off,tasksRemain);
-		 	//printf("timings: avail_time:%li, state[cur]:%li, now:%li\n",avail_time,state[cur],timespec_to_usec(&t_now));
-			}
-			//update state[cur] to be -1
-			if (noff>0) {
-				state[cur]=-1;
-			}
-			pthread_mutex_unlock(&state_mutex[cur]);
-			
-			//mutex unlock for state[cur]
-		 }
 
-		 printf("********************END\n");
+        configure(0, NULL, 0, iqr, iqi, mcs_data[period], num_ants);
 
-		 if (nOffload == 0){
-             task_fft();
-         } else {
-             for (int left_iter = tasksRemain; left_iter< 12*num_ants;left_iter ++) {
-		 		subtask_fft(left_iter);
-		 	}
 
-        }
-
+        task_fft();
+        task_demod();
         clock_gettime(CLOCK_MONOTONIC, &t_now);
         // check if there is enough time to decode else kill
         if (timespec_to_usec(&t_next) - (timespec_to_usec(&t_now) + 5*decode_time[mcs]) < 0.0){
@@ -397,41 +319,15 @@ void* proc_main(void* arg){
         }else{
             task_decode();
         }
-        clock_gettime(CLOCK_MONOTONIC, &proc_end);
-
-
-        // there is time to receive migrated task
-        clock_gettime(CLOCK_MONOTONIC, &t_now);
-        long rem_time = timespec_to_usec(&t_next)  - timespec_to_usec(&t_now);
-        // printf("remtime[%d] is:%li\n",id, rem_time);
-
-        if (rem_time > 50){
-            // printf("I am setting state[id]\n");
-			state[id]=timespec_to_usec(&t_next);
-
-
-            // wait for received task or for the remaining time
-            clock_gettime(CLOCK_MONOTONIC, &t_now);
-            while( (migrate_avail[id] != 1) && ( timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next) )) {
-				// printf("************************************************SLEEEEEEEEPING\n");
-             clock_gettime(CLOCK_MONOTONIC, &t_now);
-             }
-
-        }
-        state[id]=-id;
-
-
         // task_all();
+
+        clock_gettime(CLOCK_MONOTONIC, &proc_end);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
         if (timespec_lower(&t_now, &t_next)==1){
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
         }
 
-        //check if result is ready
-        // clock_gettime(CLOCK_MONOTONIC, &proc_end);
-        /*****************************/
-        // log_notice("proc thread [%d] just finished its processing", id);
 
         timing = &timings[period];
         timing->ind = id;
@@ -495,10 +391,6 @@ int main(int argc, char** argv){
 
 
     deadline_miss_flag = (int *)malloc(100*sizeof(int));
-    // int cpu_no;
-    // for (cpu_no=0; cpu_no<100; cpu_no++){
-    //     deadline_miss_flag[cpu_no] = cpu_no;
-    // }
 
 
     srand(time(NULL));
@@ -626,12 +518,20 @@ int main(int argc, char** argv){
     assert(num_cores_bs == 1 || num_cores_bs == 2 || num_cores_bs == 3);
     log_notice("Scheduler will run with %d cores for each of %d BSs. Total cores = %d\n",num_cores_bs, num_bss, proc_nthreads)
 
+
+    FILE *fp;
+    i = 0;
+    fp = fopen("mcs.txt", "r");
+    while (fscanf(fp, "%d", &mcs_data[i])!= NULL){
+        i++;
+    }
+
+
     /**************************************************************************/
 
     iqr = (short*) malloc(1*2*30720*sizeof(short)); //1=no_of_frame/1000, 2=BW/5MHz
     iqi = (short*) malloc(1*2*30720*sizeof(short));
     // configure the baseband
-    configure(0, NULL, 0, iqr, iqi, mcs, num_ants);
     /**************************************************************************/
 
 

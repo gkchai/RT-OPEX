@@ -635,6 +635,11 @@ void configure(int argc, char **argv, int trials, short* iqr, short* iqi, int mm
 
 }
 
+
+
+//configure the processing in runtime
+//
+
 int task_all(){
 
     opp_enabled=1; // to enable the time meas
