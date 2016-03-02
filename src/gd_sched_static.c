@@ -350,33 +350,37 @@ void* proc_main(void* arg){
 		//check for migration opportunity
 		//iterating over the processing threads and studying which ones are available for migration
 		int nOffload = 0;
-		// int max_off = 0;
-		// int tasksRemain = 2*num_ants;
-		// printf("********************START\n");
-  //       for (int cur = 0; cur<proc_nthreads;cur++) {
-		// 	avail_time = state[cur] - timespec_to_usec(&t_now);
-		// 	if (avail_time<0) {
-		// 		avail_time = 0;
-		// 	}
-		// 	int lim_off = floor(avail_time/sub_fft_time);
-		// 	int noff = MIN(tasksRemain-max_off,MIN(lim_off,floor(tasksRemain/2)));
-		// 	max_off= MAX(max_off,noff);
-		// 	tasksRemain = tasksRemain-noff;
-		// 	if (avail_time>0) {
-		// 	printf("I am offloading things: noff:%d to core:%d, maxoff:%d, limoff:%d, remain:%d\n",noff,cur,max_off,lim_off,tasksRemain);
-		// 	printf("timings: avail_time:%li, state[cur]:%li, now:%li\n",avail_time,state[cur],timespec_to_usec(&t_now));}
-		// }
+		int max_off = 0;
+		int tasksRemain = 12*num_ants;
+		printf("********************START\n");
+        for (int cur = 0; cur<proc_nthreads;cur++) {
+			//mutex lock for state[cur]
+		 	avail_time = state[cur] - timespec_to_usec(&t_now);
+		 	if (avail_time<0) {
+		 		avail_time = 0;
+		 	}
+		 	int lim_off = floor(avail_time/sub_fft_time);
+		 	int noff = MIN(tasksRemain-max_off,MIN(lim_off,floor(tasksRemain/2)));
+		 	max_off= MAX(max_off,noff);
+		 	tasksRemain = tasksRemain-noff;
+		 	if (avail_time>0) {
+		 	printf("I am offloading things: noff:%d to core:%d, maxoff:%d, limoff:%d, remain:%d\n",noff,cur,max_off,lim_off,tasksRemain);
+		 	//printf("timings: avail_time:%li, state[cur]:%li, now:%li\n",avail_time,state[cur],timespec_to_usec(&t_now));
+			}
+			//update state[cur] to be -1
+			//mutex unlock for state[cur]
+		 }
 
-		// printf("********************END\n");
+		 printf("********************END\n");
 
-		// if (nOffload == 0){
-  //           task_fft();
-  //       } else {
-  //           for (int left_iter = tasksRemain; left_iter< 12*num_ants;left_iter ++) {
-		// 		subtask_fft(left_iter);
-		// 	}
+		 if (nOffload == 0){
+             task_fft();
+         } else {
+             for (int left_iter = tasksRemain; left_iter< 12*num_ants;left_iter ++) {
+		 		subtask_fft(left_iter);
+		 	}
 
-  //       }
+        }
 
         clock_gettime(CLOCK_MONOTONIC, &t_now);
         // check if there is enough time to decode else kill
