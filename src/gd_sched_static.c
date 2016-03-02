@@ -1,8 +1,11 @@
 #include "gd_sched.h"
 #include "gd_rx.h"
-
 short* iqr;
 short* iqi;
+
+#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
+#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
+
 
 //global variables
 static pthread_t *trans_threads;
@@ -30,12 +33,13 @@ int *deadline_miss_flag;
 
 
 char exp_str[100];
-int *state, *migrate_avail, *migrate_to;
+int *migrate_avail, *migrate_to;
+long *state;
 
 double decode_time[28] = {15.9,20.7,25.5,32.9,41.8,50.6,59.5,71.4,80.3,92.1,92.1,100.9,114.2,131.9,149.3,162.6,175.9,175.9,189.2,
 211.3,224.5,246.4,264.1,293.4,315.5,326.5,352.4,365.4};
 
-double sub_fft_time = 40;
+double sub_fft_time = 6;
 double sub_demod_time = 20;
 
 
@@ -135,6 +139,8 @@ void* trans_main(void* arg){
         pthread_mutex_lock(&subframe_mutex[bs_id*num_cores_bs + subframe_id]);
         // subframe_avail[bs_id*num_cores_bs + subframe_id] = (subframe_avail[bs_id*num_cores_bs + subframe_id]+1)%(num_ants);
         subframe_avail[bs_id*num_cores_bs + subframe_id] ++;
+		printf("subframe_avail:%d %d\n",bs_id*num_cores_bs + subframe_id,subframe_avail[bs_id*num_cores_bs + subframe_id]);
+
 
         // hanging fix -- if trans misses a proc, reset the subframe available counter
         if (subframe_avail[bs_id*num_cores_bs + subframe_id] == (num_ants+1)) {
@@ -274,14 +280,31 @@ void* proc_main(void* arg){
     int subframe_id =  id%(num_cores_bs);
     log_notice("checking subframe mutex %d", bs_id*num_cores_bs + subframe_id);
 
+	//	1: Input: P subtasks, each subtask has tp proc. time
+	//  2: Input: M cores, each core has fcj > 0 of free time
+	//  3: N   P . # of left subtasks (not offloaded)
+	//  4: maxoff   0 . max # of offloaded subtasks per core
+	//	5: while N > 1 and j  M do
+	//	6: limoff = b fcj
+	//	tp c . # of subtasks can be offloaded
+	//	7: noff   min(N 􀀀 maxoff ; limoff ; bN
+	//			2 c)
+	//	8: maxoff   max(noff ; maxoff )
+	//	9: Offload noff subtasks to jth core
+	//	10: N   N 􀀀 noff
+	//	11: j   j + 1
+	//	12: end while
+
     while(running && (period < nperiods)){
 
 
         // wait for the transport thread to wake me
+		printf("what's value of subframe_avail[id]:%d\n",subframe_avail[id]);
         pthread_mutex_lock(&subframe_mutex[id]);
         while (!(subframe_avail[id] == num_ants)){
                     pthread_cond_wait(&subframe_cond[id], &subframe_mutex[id]);
         }
+		subframe_avail[id]=0;
         pthread_mutex_unlock(&subframe_mutex[id]);
 
 
@@ -293,11 +316,36 @@ void* proc_main(void* arg){
         clock_gettime(CLOCK_MONOTONIC, &proc_start);
 
         clock_gettime(CLOCK_MONOTONIC, &t_now);
-        //check for migration opportunity
-        if (state[id] != -1){
+
+		//check for migration opportunity
+		//iterating over the processing threads and studying which ones are available for migration
+		int nOffload = 0;
+		int max_off = 0;
+		int tasksRemain = 12*num_ants;
+		printf("********************START\n");
+        for (int cur = 0; cur<proc_nthreads;cur++) {
+			avail_time = state[cur] - timespec_to_usec(&t_now);
+			if (avail_time<0) {
+				avail_time = 0;
+			}
+			int lim_off = floor(avail_time/sub_fft_time);
+			int noff = MIN(tasksRemain-max_off,MIN(lim_off,floor(tasksRemain/2)));
+			max_off= MAX(max_off,noff);
+			tasksRemain = tasksRemain-noff;
+			if (avail_time>0) {
+			printf("I am offloading things: noff:%d to core:%d, maxoff:%d, limoff:%d, remain:%d\n",noff,cur,max_off,lim_off,tasksRemain);
+			printf("timings: avail_time:%li, state[cur]:%li, now:%li\n",avail_time,state[cur],timespec_to_usec(&t_now));}
+		}
+
+		printf("********************END\n");
+
+		if (nOffload == 0){
             task_fft();
-        }else{
-            avail_time = state[id] - timespec_to_usec(&t_now);
+        } else {
+            for (int left_iter = tasksRemain; left_iter< 12*num_ants;left_iter ++) {
+				subtask_fft(left_iter);
+			}
+			
         }
 
 
@@ -319,24 +367,26 @@ void* proc_main(void* arg){
             task_decode();
         }
 
-
+ 
         // there is time to receive migrated task
         clock_gettime(CLOCK_MONOTONIC, &t_now);
-        int rem_time = timespec_to_usec(&t_next)  - timespec_to_usec(&t_now);
+        long rem_time = timespec_to_usec(&t_next)  - timespec_to_usec(&t_now);
+        printf("remtime is:%li\n",rem_time);
+
         if (rem_time > 50){
-            state[id]=timespec_to_usec(&t_next);
+            printf("I am setting state[id]\n");
+			state[id]=timespec_to_usec(&t_next);
             // wait for received task or for transport
             while( (migrate_avail[id] != 1) && (subframe_avail[id] != num_ants)) {
                 // do nothing
+			//	printf("************************************************SLEEEEEEEEPING\n");
             }
 
             if (subframe_avail[id] != num_ants){
                 // do the migration
             }
         }
-        else{
-            state[id]=-1;
-        }
+        state[id]=-id;
 
 
 
@@ -573,7 +623,7 @@ int main(int argc, char** argv){
     subframe_cond = (pthread_cond_t*)malloc(proc_nthreads*sizeof(pthread_cond_t));
     common_time = (struct timespec*)malloc((num_cores_bs)*sizeof(struct timespec));
     subframe_avail = (int *)malloc(proc_nthreads*sizeof(int));
-    state = (int *)malloc(proc_nthreads*sizeof(int));
+    state = (long *)malloc(proc_nthreads*sizeof(long));
     migrate_avail = (int *)malloc(proc_nthreads*sizeof(int));
     migrate_to = (int *)malloc(proc_nthreads*sizeof(int));
 
