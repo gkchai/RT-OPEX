@@ -1,8 +1,11 @@
 #include "gd_sched.h"
 #include "gd_rx.h"
-
 short* iqr;
 short* iqi;
+
+#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
+#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
+
 
 //global variables
 static pthread_t *trans_threads;
@@ -18,6 +21,8 @@ static int num_cores_bs;
 static pthread_mutex_t *subframe_mutex;
 static pthread_cond_t *subframe_cond;
 static struct timespec *common_time;
+static struct timespec common_time_ref;
+static struct timespec common_time_next;
 
 
 static int *subframe_avail;
@@ -30,12 +35,13 @@ int *deadline_miss_flag;
 
 
 char exp_str[100];
-int *state, *migrate_avail, *migrate_to;
+int *migrate_avail, *migrate_to;
+long *state;
 
 double decode_time[28] = {15.9,20.7,25.5,32.9,41.8,50.6,59.5,71.4,80.3,92.1,92.1,100.9,114.2,131.9,149.3,162.6,175.9,175.9,189.2,
 211.3,224.5,246.4,264.1,293.4,315.5,326.5,352.4,365.4};
 
-double sub_fft_time = 40;
+double sub_fft_time = 6;
 double sub_demod_time = 20;
 
 
@@ -117,24 +123,29 @@ void* trans_main(void* arg){
 
     while(running && (period < nperiods)){
 
+
+        subframe_id = period%(num_cores_bs);
+
         // get current deadline and next period
         t_deadline = timespec_add(&t_next, &tdata->deadline);
         t_next = timespec_add(&t_next, &tdata->period);
 
         clock_gettime(CLOCK_MONOTONIC, &trans_start);
         /******* Main transport ******/
-        if (debug_trans) {
-            int j;
-            for(j=0; j <30000; j++){}
+        if (debug_trans==1) {
+            int j, k;
+            for(j=0; j <60000; j++){k=k+1;}
         } else {
             gd_trans_read(tdata->conn_desc);
         }
+        /******* Main transport ******/
 
-        subframe_id = period%(num_cores_bs);
 
         pthread_mutex_lock(&subframe_mutex[bs_id*num_cores_bs + subframe_id]);
         // subframe_avail[bs_id*num_cores_bs + subframe_id] = (subframe_avail[bs_id*num_cores_bs + subframe_id]+1)%(num_ants);
         subframe_avail[bs_id*num_cores_bs + subframe_id] ++;
+		// printf("subframe_avail:%d %d\n",bs_id*num_cores_bs + subframe_id,subframe_avail[bs_id*num_cores_bs + subframe_id]);
+
 
         // hanging fix -- if trans misses a proc, reset the subframe available counter
         if (subframe_avail[bs_id*num_cores_bs + subframe_id] == (num_ants+1)) {
@@ -174,10 +185,11 @@ void* trans_main(void* arg){
         if (timespec_lower(&t_now, &t_next)){
             // sleep for remaining time
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
+        }else{
+            printf("Transport %d is too slow\n", id);
         }
 
         period ++;
-        // only one transport thread should update global time
 
     }
     clock_gettime(CLOCK_MONOTONIC, &t_temp);
@@ -225,10 +237,14 @@ void* timer_main(void* arg){
         t_next = timespec_add(&t_next, &tdata->period);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
         common_time[subframe_id] = t_now;
+        common_time_ref = t_now;
+        common_time_next = t_next;
 
         if (timespec_lower(&t_now, &t_next)){
             // sleep for remaining time
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
+        }else{
+            printf("timer is screwed\n");
         }
 
         period++;
@@ -248,7 +264,7 @@ void* proc_main(void* arg){
     thread_common(pthread_self(), tdata);
     unsigned long abs_period_start = timespec_to_usec(&tdata->main_start);
     struct timespec t_offset;
-    t_offset = usec_to_timespec(id*500);
+    t_offset = usec_to_timespec(id*num_cores_bs*1000);
     tdata->main_start = timespec_add(&tdata->main_start, &t_offset);
     struct timespec proc_start, proc_end, t_next, t_deadline;
     gd_proc_timing_meta_t *timings;
@@ -257,7 +273,7 @@ void* proc_main(void* arg){
             (double) timespec_to_usec(&tdata->period));
 
     //nperiods reduce a little to prevents trans finishing before proc; ugly fix
-    nperiods-=1000;
+    nperiods-=100;
 
     timings = (gd_proc_timing_meta_t*) malloc ( nperiods * sizeof(gd_proc_timing_meta_t));
     gd_proc_timing_meta_t *timing;
@@ -274,79 +290,105 @@ void* proc_main(void* arg){
     int subframe_id =  id%(num_cores_bs);
     log_notice("checking subframe mutex %d", bs_id*num_cores_bs + subframe_id);
 
+	//	1: Input: P subtasks, each subtask has tp proc. time
+	//  2: Input: M cores, each core has fcj > 0 of free time
+	//  3: N   P . # of left subtasks (not offloaded)
+	//  4: maxoff   0 . max # of offloaded subtasks per core
+	//	5: while N > 1 and j  M do
+	//	6: limoff = b fcj
+	//	tp c . # of subtasks can be offloaded
+	//	7: noff   min(N 􀀀 maxoff ; limoff ; bN
+	//			2 c)
+	//	8: maxoff   max(noff ; maxoff )
+	//	9: Offload noff subtasks to jth core
+	//	10: N   N 􀀀 noff
+	//	11: j   j + 1
+	//	12: end while
+
     while(running && (period < nperiods)){
 
 
+        t_deadline = timespec_add(&common_time_ref, &tdata->deadline);
+        t_next = timespec_add(&common_time_ref, &tdata->period);
+
         // wait for the transport thread to wake me
+		// printf("what's value of subframe_avail[id]:%d\n",subframe_avail[id]);
         pthread_mutex_lock(&subframe_mutex[id]);
         while (!(subframe_avail[id] == num_ants)){
                     pthread_cond_wait(&subframe_cond[id], &subframe_mutex[id]);
         }
+		subframe_avail[id]=0;
         pthread_mutex_unlock(&subframe_mutex[id]);
 
 
         /****** do LTE processing *****/
-        t_deadline = timespec_add(&common_time[subframe_id], &tdata->deadline);
-        t_next = timespec_add(&common_time[subframe_id], &tdata->period);
+
 
 
         clock_gettime(CLOCK_MONOTONIC, &proc_start);
-
         clock_gettime(CLOCK_MONOTONIC, &t_now);
-        //check for migration opportunity
-        if (state[id] != -1){
-        }else{
-            avail_time = state[id] - timespec_to_usec(&t_now);
-        }
 
-        task_fft();
+		//check for migration opportunity
+		//iterating over the processing threads and studying which ones are available for migration
+		int nOffload = 0;
+		// int max_off = 0;
+		// int tasksRemain = 2*num_ants;
+		// printf("********************START\n");
+  //       for (int cur = 0; cur<proc_nthreads;cur++) {
+		// 	avail_time = state[cur] - timespec_to_usec(&t_now);
+		// 	if (avail_time<0) {
+		// 		avail_time = 0;
+		// 	}
+		// 	int lim_off = floor(avail_time/sub_fft_time);
+		// 	int noff = MIN(tasksRemain-max_off,MIN(lim_off,floor(tasksRemain/2)));
+		// 	max_off= MAX(max_off,noff);
+		// 	tasksRemain = tasksRemain-noff;
+		// 	if (avail_time>0) {
+		// 	printf("I am offloading things: noff:%d to core:%d, maxoff:%d, limoff:%d, remain:%d\n",noff,cur,max_off,lim_off,tasksRemain);
+		// 	printf("timings: avail_time:%li, state[cur]:%li, now:%li\n",avail_time,state[cur],timespec_to_usec(&t_now));}
+		// }
 
+		// printf("********************END\n");
 
+		// if (nOffload == 0){
+  //           task_fft();
+  //       } else {
+  //           for (int left_iter = tasksRemain; left_iter< 12*num_ants;left_iter ++) {
+		// 		subtask_fft(left_iter);
+		// 	}
 
-        //check for migration opportunity
-        if (state[id] != -1){
-
-            // task_demod();
-        }else{
-            avail_time = state[id] - timespec_to_usec(&t_now);
-        }
-
-        clock_gettime(CLOCK_MONOTONIC, &t_now);
-            // task_demod();
-        task_fft();
-
-        clock_gettime(CLOCK_MONOTONIC, &t_temp);
-        printf("Demodulation time = %d us\n", timespec_to_usec(&t_temp) - timespec_to_usec(&t_now));
-
-
+  //       }
 
         clock_gettime(CLOCK_MONOTONIC, &t_now);
         // check if there is enough time to decode else kill
-
-
-        if (timespec_to_usec(&t_next) - (timespec_to_usec(&t_now) + decode_time[mcs]) < 0.0){
+        if (timespec_to_usec(&t_next) - (timespec_to_usec(&t_now) + 5*decode_time[mcs]) < 0.0){
             // printf("I kill myslef\n");
         }else{
             task_decode();
         }
+        clock_gettime(CLOCK_MONOTONIC, &proc_end);
+
 
         // there is time to receive migrated task
         clock_gettime(CLOCK_MONOTONIC, &t_now);
-        int rem_time = timespec_to_usec(&t_next)  - timespec_to_usec(&t_now);
-        if (rem_time > 50){
-            state[id]=timespec_to_usec(&t_next);
-            // wait for received task or for transport
-            while( (migrate_avail[id] != 1) && (subframe_avail[id] != num_ants)) {
-                // do nothing
-            }
+        long rem_time = timespec_to_usec(&t_next)  - timespec_to_usec(&t_now);
+        // printf("remtime[%d] is:%li\n",id, rem_time);
 
-            if (subframe_avail[id] != num_ants){
+        if (rem_time > 50){
+            // printf("I am setting state[id]\n");
+			state[id]=timespec_to_usec(&t_next);
+            // wait for received task or for transport
+
+            while( (migrate_avail[id] != 1) && ( timespec_to_usec(&common_time_ref) + num_cores_bs*1000 ==  timespec_to_usec(&t_next) )) {
+    //             // do nothing
+				// printf("************************************************SLEEEEEEEEPING\n");
+             }
+
+            if (timespec_to_usec(&common_time[subframe_id]) > timespec_to_usec(&t_next)-10){
                 // do the migration
             }
         }
-        else{
-            state[id]=-1;
-        }
+        state[id]=-id;
 
 
         // task_all();
@@ -354,10 +396,12 @@ void* proc_main(void* arg){
 
         if (timespec_lower(&t_now, &t_next)){
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
+        }else{
+            // printf("Proc %d too slow\n",id);
         }
 
         //check if result is ready
-        clock_gettime(CLOCK_MONOTONIC, &proc_end);
+        // clock_gettime(CLOCK_MONOTONIC, &proc_end);
         /*****************************/
         // log_notice("proc thread [%d] just finished its processing", id);
 
@@ -374,7 +418,7 @@ void* proc_main(void* arg){
         timing->rel_deadline = timing->abs_deadline - abs_period_start;
         timing->original_duration = 0;
         timing->actual_duration = timing->rel_end_time - timing->rel_start_time;
-        timing->miss = deadline_miss;
+        timing->miss = (timing->rel_deadline - timing->rel_end_time >= 0) ? 0 : 1;
         period++;
     }
 
@@ -582,7 +626,7 @@ int main(int argc, char** argv){
     subframe_cond = (pthread_cond_t*)malloc(proc_nthreads*sizeof(pthread_cond_t));
     common_time = (struct timespec*)malloc((num_cores_bs)*sizeof(struct timespec));
     subframe_avail = (int *)malloc(proc_nthreads*sizeof(int));
-    state = (int *)malloc(proc_nthreads*sizeof(int));
+    state = (long *)malloc(proc_nthreads*sizeof(long));
     migrate_avail = (int *)malloc(proc_nthreads*sizeof(int));
     migrate_to = (int *)malloc(proc_nthreads*sizeof(int));
 
@@ -625,7 +669,7 @@ int main(int argc, char** argv){
         trans_tdata[i].log_handler = fopen(tmp_str, "w");
         trans_tdata[i].sched_prio = priority;
         trans_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
-        CPU_SET( 15 +i, trans_tdata[i].cpuset);
+        CPU_SET( 22 +i, trans_tdata[i].cpuset);
 
         trans_tdata[i].conn_desc.node_id = i;
         trans_tdata[i].conn_desc.node_sock = node_socks[i];
@@ -650,7 +694,7 @@ int main(int argc, char** argv){
         proc_tdata[i].log_handler = fopen(tmp_str, "w");
         proc_tdata[i].sched_prio = priority;
         proc_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
-        CPU_SET( 10+i, proc_tdata[i].cpuset);
+        CPU_SET( 8+i, proc_tdata[i].cpuset);
     }
 
     struct timespec t_start;
