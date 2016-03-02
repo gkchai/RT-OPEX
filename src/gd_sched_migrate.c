@@ -353,7 +353,7 @@ void* proc_main(void* arg){
 		int nOffload = 0;
 		int max_off = 0;
 		int tasksRemain = 12*num_ants;
-		printf("********************START\n");
+//		printf("********************START\n");
         for (int cur = 0; cur<proc_nthreads;cur++) {
 			//mutex lock for state[cur]
 
@@ -368,18 +368,19 @@ void* proc_main(void* arg){
 		 	tasksRemain = tasksRemain-noff;
 		 	if (avail_time>0) {
 		 	printf("I am offloading things: noff:%d to core:%d, maxoff:%d, limoff:%d, remain:%d\n",noff,cur,max_off,lim_off,tasksRemain);
-		 	//printf("timings: avail_time:%li, state[cur]:%li, now:%li\n",avail_time,state[cur],timespec_to_usec(&t_now));
+		 	printf("timings: avail_time:%li, state[cur]:%li, now:%li\n",avail_time,state[cur],timespec_to_usec(&t_now));
 			}
 			//update state[cur] to be -1
 			if (noff>0) {
 				state[cur]=-1;
+				migrate_avail[cur]=1;
 			}
 			pthread_mutex_unlock(&state_mutex[cur]);
 			
 			//mutex unlock for state[cur]
 		 }
 
-		 printf("********************END\n");
+//		 printf("********************END\n");
 
 		 if (nOffload == 0){
              task_fft();
@@ -403,19 +404,36 @@ void* proc_main(void* arg){
         // there is time to receive migrated task
         clock_gettime(CLOCK_MONOTONIC, &t_now);
         long rem_time = timespec_to_usec(&t_next)  - timespec_to_usec(&t_now);
-        // printf("remtime[%d] is:%li\n",id, rem_time);
+     //   printf("remtime[%d] is:%li\n",id, rem_time);
 
         if (rem_time > 50){
             // printf("I am setting state[id]\n");
 			state[id]=timespec_to_usec(&t_next);
 
+			struct timespec t_before, t_after;
+			clock_gettime(CLOCK_MONOTONIC, &t_before);
 
             // wait for received task or for the remaining time
             clock_gettime(CLOCK_MONOTONIC, &t_now);
-            while( (migrate_avail[id] != 1) && ( timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next) )) {
-				// printf("************************************************SLEEEEEEEEPING\n");
-             clock_gettime(CLOCK_MONOTONIC, &t_now);
+			int rvd_task = 0;
+            while( timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next)-50 ) {
+				if (migrate_avail[id] == 1) {
+					migrate_avail[id]=0;
+					rvd_task = 1;
+					for (int ii=0;ii<2000;ii++) {} //mimic offloaded task for now
+
+				}
+				clock_gettime(CLOCK_MONOTONIC, &t_now);
+				rem_time = timespec_to_usec(&t_next)  - timespec_to_usec(&t_now);
+				if (rem_time>50) {
+					state[id] = timespec_to_usec(&t_next);
+				}
+
              }
+			clock_gettime(CLOCK_MONOTONIC, &t_after);
+			printf("remtime[%d] is:%li, slept for:%li,rcvd task:%d\n",id, rem_time,timespec_to_usec(&t_after)-timespec_to_usec(&t_before),rvd_task);
+
+
 
         }
         state[id]=-id;
