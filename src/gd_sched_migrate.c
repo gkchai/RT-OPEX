@@ -278,8 +278,6 @@ void* proc_main(void* arg){
 
     timings = (gd_proc_timing_meta_t*) malloc ( nperiods * sizeof(gd_proc_timing_meta_t));
     gd_proc_timing_meta_t *timing;
-
-    t_next = tdata->main_start;
     int period = 0;
     int deadline_miss=0;
 
@@ -311,24 +309,6 @@ void* proc_main(void* arg){
     while(running && (period < nperiods)){
 
 
-        t_deadline = timespec_add(&common_time_ref, &tdata->deadline);
-        t_temp1 = timespec_add(&common_time_ref, &each);
-
-        // if (((timespec_lower(&common_time_ref,&t_next) == 1)) && (period >50)){
-        //     // printf("Timer %d was lagging %d = %li, %li\n", id, period, timespec_to_usec(&common_time_ref), timespec_to_usec(&t_next));
-        //     // t_next = t_temp1;
-        //     // clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp1, NULL);
-        // }
-
-        // t_temp = t_next;
-        // // t_next = timespec_add(&common_time_ref, &tdata->period);
-        // int diff = timespec_to_usec(&common_time_ref) - timespec_to_usec(&t_temp);
-        // if (diff < 1800 || diff > 2200){
-        //     printf("Diff = %d in period %d\n",diff, period);
-        // }
-
-        t_next = timespec_add(&t_next, &tdata->period);
-
 
 
         // wait for the transport thread to wake me
@@ -342,10 +322,11 @@ void* proc_main(void* arg){
 
 
         /****** do LTE processing *****/
-
-
-
         clock_gettime(CLOCK_MONOTONIC, &proc_start);
+        t_next = timespec_add(&proc_start, &tdata->period);
+
+
+
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
 		//check for migration opportunity
@@ -367,16 +348,16 @@ void* proc_main(void* arg){
 		 	max_off= MAX(max_off,noff);
 		 	tasksRemain = tasksRemain-noff;
 		 	if (avail_time>0) {
-		 	printf("I am offloading things: noff:%d to core:%d, maxoff:%d, limoff:%d, remain:%d\n",noff,cur,max_off,lim_off,tasksRemain);
-		 	printf("timings: avail_time:%li, state[cur]:%li, now:%li\n",avail_time,state[cur],timespec_to_usec(&t_now));
+		 	// printf("I am offloading things: noff:%d to core:%d, maxoff:%d, limoff:%d, remain:%d\n",noff,cur,max_off,lim_off,tasksRemain);
+		 	// printf("timings: avail_time[%d]:%li, state[cur]:%li, now:%li\n", cur,avail_time,state[cur],timespec_to_usec(&t_now));
 			}
-			//update state[cur] to be -1
+			// //update state[cur] to be -1
 			if (noff>0) {
 				state[cur]=-1;
 				migrate_avail[cur]=1;
 			}
 			pthread_mutex_unlock(&state_mutex[cur]);
-			
+
 			//mutex unlock for state[cur]
 		 }
 
@@ -394,7 +375,7 @@ void* proc_main(void* arg){
         clock_gettime(CLOCK_MONOTONIC, &t_now);
         // check if there is enough time to decode else kill
         if (timespec_to_usec(&t_next) - (timespec_to_usec(&t_now) + 5*decode_time[mcs]) < 0.0){
-            // printf("I kill myslef\n");
+            printf("I kill myslef\n");
         }else{
             task_decode();
         }
@@ -431,20 +412,20 @@ void* proc_main(void* arg){
 
              }
 			clock_gettime(CLOCK_MONOTONIC, &t_after);
-			printf("remtime[%d] is:%li, slept for:%li,rcvd task:%d\n",id, rem_time,timespec_to_usec(&t_after)-timespec_to_usec(&t_before),rvd_task);
+			// printf("remtime[%d] is:%li, slept for:%li,rcvd task:%d\n",id, rem_time,timespec_to_usec(&t_after)-timespec_to_usec(&t_before),rvd_task);
 
 
 
         }
-        state[id]=-id;
+        state[id] = -1;
 
 
         // task_all();
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
-        if (timespec_lower(&t_now, &t_next)==1){
-            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
-        }
+        // if (timespec_lower(&t_now, &t_next)==1){
+        //     clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
+        // }
 
         //check if result is ready
         // clock_gettime(CLOCK_MONOTONIC, &proc_end);

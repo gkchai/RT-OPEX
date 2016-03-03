@@ -33,7 +33,7 @@ static int mcs;
 
 gd_rng_buff_t *rng_buff;
 int *deadline_miss_flag;
-int *mcs_data;
+int mcs_data[95];
 
 
 char exp_str[100];
@@ -288,10 +288,11 @@ void* proc_main(void* arg){
     int bs_id = (int)(id/num_cores_bs);
     int subframe_id =  id%(num_cores_bs);
     log_notice("checking subframe mutex %d", bs_id*num_cores_bs + subframe_id);
-
+    int kill = 0;
+    int ret= 0;
     while(running && (period < nperiods)){
 
-        t_next = timespec_add(&t_next, &tdata->period);
+
         // wait for the transport thread to wake me
         pthread_mutex_lock(&subframe_mutex[id]);
         while (!(subframe_avail[id] == num_ants)){
@@ -300,37 +301,42 @@ void* proc_main(void* arg){
 		subframe_avail[id]=0;
         pthread_mutex_unlock(&subframe_mutex[id]);
 
-
         /****** do LTE processing *****/
         clock_gettime(CLOCK_MONOTONIC, &proc_start);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
+        t_next = timespec_add(&t_now, &tdata->period);
+        // printf("Setting MCS %d\n", mcs_data[period%95]);
+        // configure_runtime(mcs_data[period%95]);
 
 
-        configure(0, NULL, 0, iqr, iqi, mcs_data[period], num_ants);
+        // task_fft();
+        // task_demod();
+        // clock_gettime(CLOCK_MONOTONIC, &t_now);
+
+        // // check if there is enough time to decode else kill
+        // // if (timespec_to_usec(&t_next) - (50 + timespec_to_usec(&t_now) + 5*decode_time[mcs_data[period%95]]) < 0.0){
+        // if (timespec_to_usec(&t_next) - (timespec_to_usec(&t_now) + 5*decode_time[mcs]) < 0.0){
+        //     // printf("I kill myslef\n");
+        //     kill = 100;
+        // }else{
+        //     kill = 0;
+        //     ret = task_decode();
+        // }
 
 
-        task_fft();
-        task_demod();
-        clock_gettime(CLOCK_MONOTONIC, &t_now);
-        // check if there is enough time to decode else kill
-        if (timespec_to_usec(&t_next) - (timespec_to_usec(&t_now) + 5*decode_time[mcs]) < 0.0){
-            // printf("I kill myslef\n");
-        }else{
-            task_decode();
-        }
-        // task_all();
+        ret = task_all();
 
         clock_gettime(CLOCK_MONOTONIC, &proc_end);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
-        if (timespec_lower(&t_now, &t_next)==1){
-            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
+        if (timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next)-50){
+                            clock_gettime(CLOCK_MONOTONIC, &t_now);
         }
 
 
         timing = &timings[period];
-        timing->ind = id;
+        timing->ind = mcs_data[period%95];
         timing->period = period;
         timing->abs_period_time = timespec_to_usec(&t_next);
         timing->rel_period_time = timing->abs_period_time - abs_period_start;
@@ -340,9 +346,10 @@ void* proc_main(void* arg){
         timing->rel_end_time = timing->abs_end_time - abs_period_start;
         timing->abs_deadline = timespec_to_usec(&t_deadline);
         timing->rel_deadline = timing->abs_deadline - abs_period_start;
-        timing->original_duration = 0;
+        timing->original_duration = kill;
         timing->actual_duration = timing->rel_end_time - timing->rel_start_time;
-        timing->miss = (timing->rel_deadline - timing->rel_end_time >= 0) ? 0 : 1;
+        // timing->miss = (timing->rel_deadline - timing->rel_end_time >= 0) ? 0 : 1;
+        timing->miss = ret;
         period++;
     }
 
@@ -522,16 +529,33 @@ int main(int argc, char** argv){
     FILE *fp;
     i = 0;
     fp = fopen("mcs.txt", "r");
-    while (fscanf(fp, "%d", &mcs_data[i])!= NULL){
+    while (fscanf(fp, "%d\n", &mcs_data[i])!= EOF && i < 95){
         i++;
     }
-
+    fclose(fp);
 
     /**************************************************************************/
-
     iqr = (short*) malloc(1*2*30720*sizeof(short)); //1=no_of_frame/1000, 2=BW/5MHz
     iqi = (short*) malloc(1*2*30720*sizeof(short));
+
+    FILE* file_iq;
+    char filename_iq[500];
+    sprintf(filename_iq, "/mnt/hd3/gkchai/ul/iq_mcs=%d_snr=%f_nrb=%d_subf=%d_ch=%d_rx=%d.dat", mcs, 30.000000, 50, 3, 1, 0);
+    printf("Reading ... %s\n", filename_iq);
+    file_iq = fopen(filename_iq, "r");
+    i = 0;
+    j = 0;
+
+    // changed 2*30720000 to 2*3072000 ?
+    while (fscanf(file_iq, "%hi\t%hi\n", &iqr[i], &iqi[j]) != EOF && i < 2*30720){
+        i++;
+        j++;
+    }
+    fclose(file_iq);
+
     // configure the baseband
+    configure(0, NULL, 0, iqr, iqi, mcs, num_ants);
+
     /**************************************************************************/
 
 

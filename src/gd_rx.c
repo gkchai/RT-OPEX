@@ -32,6 +32,7 @@ int subframe=3;
 unsigned char harq_pid;
 LTE_DL_FRAME_PARMS *frame_parms;
 uint8_t cooperation_flag = 0; //0 no cooperation, 1 delay diversity, 2 Alamouti
+// uint32_t UL_alloc_pdu;
 
 
 void lte_param_init(unsigned char N_tx, unsigned char N_rx,unsigned char transmission_mode,uint8_t extended_prefix_flag,uint8_t N_RB_DL,uint8_t frame_type,uint8_t tdd_config,uint8_t osf)
@@ -135,7 +136,6 @@ void configure(int argc, char **argv, int trials, short* iqr, short* iqi, int mm
     uint8_t N0=30;
     double tx_gain=1.0;
     double cpu_freq_GHz;
-    uint32_t UL_alloc_pdu;
     int s;
     int dump_perf=0;
     int test_perf=0;
@@ -428,7 +428,6 @@ void configure(int argc, char **argv, int trials, short* iqr, short* iqi, int mm
   coded_bits_per_codeword = nb_rb * (12 * get_Qm(mcs)) * nsymb;
   rate = (double)2*dlsch_tbs25[get_I_TBS(mcs)][25-1]/(coded_bits_per_codeword);
 
-  double freq = 2.79;
   PHY_vars_UE->lte_ue_pdcch_vars[0]->crnti = 14;
 
   PHY_vars_UE->lte_frame_parms.soundingrs_ul_config_common.srs_BandwidthConfig = 2;
@@ -581,7 +580,6 @@ void configure(int argc, char **argv, int trials, short* iqr, short* iqi, int mm
 
   PHY_vars_UE->dlsch_ue[0][0]->harq_ack[ul_subframe2pdcch_alloc_subframe(&PHY_vars_eNB->lte_frame_parms,subframe)].send_harq_status = 1;
 
-
   PHY_vars_UE->frame_tx = (PHY_vars_UE->frame_tx-1)&1023;
   printf("**********************here=1**************************\n");
   generate_ue_ulsch_params_from_dci((void *)&UL_alloc_pdu,
@@ -626,19 +624,63 @@ void configure(int argc, char **argv, int trials, short* iqr, short* iqi, int mm
     /////////////////////
     int aa = 0; int ii=0;
     for(ii=0; ii< PHY_vars_eNB->lte_frame_parms.samples_per_tti; ii++){
-        ((short*) &PHY_vars_eNB->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB->lte_frame_parms.samples_per_tti*subframe])[2*ii] = iqr[ii + (4*trials + round)*PHY_vars_eNB->lte_frame_parms.samples_per_tti];
-        ((short*) &PHY_vars_eNB->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB->lte_frame_parms.samples_per_tti*subframe])[2*ii +1] = iqi[ii + (4*trials + round)*PHY_vars_eNB->lte_frame_parms.samples_per_tti];
+        ((short*) &PHY_vars_eNB->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB->lte_frame_parms.samples_per_tti*subframe])[2*ii] = iqr[ii + (4*trials + 0)*PHY_vars_eNB->lte_frame_parms.samples_per_tti];
+        ((short*) &PHY_vars_eNB->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB->lte_frame_parms.samples_per_tti*subframe])[2*ii +1] = iqi[ii + (4*trials + 0)*PHY_vars_eNB->lte_frame_parms.samples_per_tti];
     }
+
+    printf("Loaded %d IQ samples\n", PHY_vars_eNB->lte_frame_parms.samples_per_tti);
 
       lte_eNB_I0_measurements(PHY_vars_eNB, 0, 1);
       PHY_vars_eNB->ulsch_eNB[0]->cyclicShift = cyclic_shift;// cyclic shift for DMRS
+
+          remove_7_5_kHz(PHY_vars_eNB,subframe<<1);
+          remove_7_5_kHz(PHY_vars_eNB,1+(subframe<<1));
+
+
 
 }
 
 
 
 //configure the processing in runtime
-//
+void configure_runtime(int new_mcs){
+
+  // for(ii=0; ii< PHY_vars_eNB->lte_frame_parms.samples_per_tti; ii++){
+
+  // ((short*) &PHY_vars_eNB->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB->lte_frame_parms.samples_per_tti*subframe])[2*ii] = iqr[ii + (4*trials + round)*PHY_vars_eNB->lte_frame_parms.samples_per_tti];
+
+  // ((short*) &PHY_vars_eNB->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB->lte_frame_parms.samples_per_tti*subframe])[2*ii +1] = iqi[ii + (4*trials + round)*PHY_vars_eNB->lte_frame_parms.samples_per_tti];
+
+  //   }
+
+  ((DCI0_10MHz_FDD_t*)&UL_alloc_pdu)->mcs     = new_mcs;
+  generate_ue_ulsch_params_from_dci((void *)&UL_alloc_pdu,
+                                    14,
+                                    ul_subframe2pdcch_alloc_subframe(&PHY_vars_UE->lte_frame_parms,subframe),
+                                    format0,
+                                    PHY_vars_UE,
+                                    SI_RNTI,
+                                    0,
+                                    P_RNTI,
+                                    CBA_RNTI,
+                                    0,
+                                    0);
+
+ if (PHY_vars_eNB->ulsch_eNB[0] != NULL)
+  generate_eNB_ulsch_params_from_dci((void *)&UL_alloc_pdu,
+                                     14,
+                                     ul_subframe2pdcch_alloc_subframe(&PHY_vars_eNB->lte_frame_parms,subframe),
+                                     format0,
+                                     0,
+                                     PHY_vars_eNB,
+                                     SI_RNTI,
+                                     0,
+                                     P_RNTI,
+                                     CBA_RNTI,
+                                     0);
+
+}
+
 
 int task_all(){
 
