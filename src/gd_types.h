@@ -66,7 +66,7 @@ typedef struct _gd_timing_meta_t{
 } gd_timing_meta_t;
 
 typedef struct _gd_proc_timing_meta_t{
-    int ind;
+    int mcs;
     unsigned long abs_period_time;
     unsigned long abs_start_time;
     unsigned long abs_end_time;
@@ -77,12 +77,11 @@ typedef struct _gd_proc_timing_meta_t{
     unsigned long rel_end_time;
     unsigned long rel_deadline;
 
-    unsigned long original_duration;
     unsigned long actual_duration;
-    unsigned long no_offload;
-    unsigned long dur_offload;
     unsigned long period;
-    long miss;
+    int kill;
+    int iter;
+    int miss;
 
 } gd_proc_timing_meta_t;
 

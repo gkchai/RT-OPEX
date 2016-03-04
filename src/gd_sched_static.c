@@ -9,7 +9,6 @@ short* iqi;
 
 //global variables
 static pthread_t *trans_threads;
-static pthread_t *timer_thread;
 static pthread_t *proc_threads;
 
 static int trans_nthreads;
@@ -221,39 +220,6 @@ void* trans_main(void* arg){
 }
 
 
-void* timer_main(void* arg){
-
-    gd_thread_data_t *tdata = (gd_thread_data_t *) arg;
-    thread_common(pthread_self(), tdata);
-    long duration_usec = (tdata->duration * 1e6);
-    int nperiods = (int) ceil( duration_usec /
-            (double) timespec_to_usec(&tdata->period));
-    int period = 0;
-    struct timespec t_next, t_now;
-    t_next = tdata->main_start;
-    int subframe_id;
-
-    while(running && (period < nperiods)){
-
-        subframe_id = period%(num_cores_bs);
-        t_next = timespec_add(&t_next, &tdata->period);
-        clock_gettime(CLOCK_MONOTONIC, &t_now);
-        common_time[subframe_id] = t_now;
-        common_time_ref = t_now;
-        common_time_next = t_next;
-
-        if (timespec_lower(&t_now, &t_next)){
-            // sleep for remaining time
-            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
-        }
-        period++;
-    }
-    running = 0;
-
-    pthread_exit(NULL);
-}
-
-
 
 void* proc_main(void* arg){
 
@@ -264,7 +230,7 @@ void* proc_main(void* arg){
     unsigned long abs_period_start = timespec_to_usec(&tdata->main_start);
     struct timespec t_offset;
     t_offset = usec_to_timespec(id*num_cores_bs*1000);
-    tdata->main_start = timespec_add(&tdata->main_start, &t_offset);
+    // tdata->main_start = timespec_add(&tdata->main_start, &t_offset);
     struct timespec proc_start, proc_end, t_next, t_deadline;
     gd_proc_timing_meta_t *timings;
     long duration_usec = (tdata->duration * 1e6);
@@ -278,6 +244,7 @@ void* proc_main(void* arg){
     gd_proc_timing_meta_t *timing;
 
     t_next = tdata->main_start;
+    t_deadline = tdata->main_start;
     int period = 0;
     int deadline_miss=0;
 
@@ -290,6 +257,7 @@ void* proc_main(void* arg){
     log_notice("checking subframe mutex %d", bs_id*num_cores_bs + subframe_id);
     int kill = 0;
     int ret= 0;
+    int curr_mcs = 0;
     while(running && (period < nperiods)){
 
 
@@ -305,27 +273,29 @@ void* proc_main(void* arg){
         clock_gettime(CLOCK_MONOTONIC, &proc_start);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
-        t_next = timespec_add(&t_now, &tdata->period);
-        // printf("Setting MCS %d\n", mcs_data[period%95]);
-        // configure_runtime(mcs_data[period%95]);
+        t_next = timespec_add(&t_now, &tdata->deadline);
+        t_deadline = timespec_add(&t_deadline, &tdata->period);
 
 
-        // task_fft();
-        // task_demod();
-        // clock_gettime(CLOCK_MONOTONIC, &t_now);
+        curr_mcs = mcs_data[period%95];
+        configure_runtime(curr_mcs, (short*)(iqr + 15360*curr_mcs), (short*)(iqi + 15360*curr_mcs), bs_id);
+
+
+        task_fft(bs_id);
+        task_demod(bs_id);
+        clock_gettime(CLOCK_MONOTONIC, &t_now);
 
         // // check if there is enough time to decode else kill
-        // // if (timespec_to_usec(&t_next) - (50 + timespec_to_usec(&t_now) + 5*decode_time[mcs_data[period%95]]) < 0.0){
-        // if (timespec_to_usec(&t_next) - (timespec_to_usec(&t_now) + 5*decode_time[mcs]) < 0.0){
-        //     // printf("I kill myslef\n");
-        //     kill = 100;
-        // }else{
-        //     kill = 0;
-        //     ret = task_decode();
-        // }
+        if (timespec_to_usec(&t_next) - (50 + timespec_to_usec(&t_now) + 0*5*decode_time[curr_mcs]) < 0.0){
+            kill = 1;
+            ret = -1;
+        }else{
+            kill = 0;
+            ret = task_decode(bs_id);
+        }
 
 
-        ret = task_all();
+        // ret = task_all(bs_id);
 
         clock_gettime(CLOCK_MONOTONIC, &proc_end);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
@@ -334,9 +304,8 @@ void* proc_main(void* arg){
                             clock_gettime(CLOCK_MONOTONIC, &t_now);
         }
 
-
         timing = &timings[period];
-        timing->ind = mcs_data[period%95];
+        timing->mcs = curr_mcs;
         timing->period = period;
         timing->abs_period_time = timespec_to_usec(&t_next);
         timing->rel_period_time = timing->abs_period_time - abs_period_start;
@@ -346,16 +315,17 @@ void* proc_main(void* arg){
         timing->rel_end_time = timing->abs_end_time - abs_period_start;
         timing->abs_deadline = timespec_to_usec(&t_deadline);
         timing->rel_deadline = timing->abs_deadline - abs_period_start;
-        timing->original_duration = kill;
         timing->actual_duration = timing->rel_end_time - timing->rel_start_time;
-        // timing->miss = (timing->rel_deadline - timing->rel_end_time >= 0) ? 0 : 1;
-        timing->miss = ret;
+        timing->miss = timing->rel_deadline > timing->rel_end_time ? 0 : 1;
+        timing->iter = ret;
+        timing->kill = kill;
+
         period++;
     }
 
     log_notice("Writing to log ... proc thread %d", id);
-    fprintf(tdata->log_handler, "#idx\t\tabs_period\t\tabs_deadline\t\tabs_start\t\tabs_end"
-                   "\t\trel_period\t\trel_start\t\trel_end\t\tduration\t\tmiss\n");
+    fprintf(tdata->log_handler, "#MCS\ttabs_period\tabs_deadline\tabs_start\tabs_end"
+                   "\trel_period\trel_start\trel_end\tduration\tmiss\titer\tkill\n");
 
     int i;
     for (i=0; i < nperiods; i++){
@@ -422,9 +392,10 @@ int main(int argc, char** argv){
     num_bss = 4;
     num_ants = 1; // antennas per radio
     N_P = 8;
+    int snr = 30;
 
     char c;
-    while ((c = getopt (argc, argv, "h::M:A:L:s:d:p:S:e:D:Z:m:")) != -1) {
+    while ((c = getopt (argc, argv, "h::M:A:L:s:d:p:S:e:D:Z:N:m:")) != -1) {
         switch (c) {
             case 'M':
               num_bss = atoi(optarg);
@@ -506,9 +477,13 @@ int main(int argc, char** argv){
                 lmax = atoi(optarg);
                 break;
 
+            case 'N':
+                snr = atoi(optarg);
+                break;
+
             case 'h':
             default:
-              printf("%s -h(elp) -M num_bss -A num_ants  -L lmax -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment ('P'plain /'O' offload) -D transport debug(0 or 1) -m MCS\n\nExample usage: sudo ./gd_lte -M 4 -A 1 -L 2000 -s 1000 -d 10 -p 10 -S F -e P -D 1 -m 20\n",
+              printf("%s -h(elp) -M num_bss -A num_ants  -L lmax -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment ('P'plain /'O' offload) -D transport debug(0 or 1) -m MCS\n\nExample usage: sudo ./gd_lte -M 4 -A 1 -L 2000 -s 1000 -d 10 -p 10 -S F -e P -D 1 -N 30 -m 20\n",
                      argv[0]);
               exit(1);
               break;
@@ -535,26 +510,33 @@ int main(int argc, char** argv){
     fclose(fp);
 
     /**************************************************************************/
-    iqr = (short*) malloc(1*2*30720*sizeof(short)); //1=no_of_frame/1000, 2=BW/5MHz
-    iqi = (short*) malloc(1*2*30720*sizeof(short));
+    iqr = (short*) malloc(28*1*15360*sizeof(short)); //1=no_of_frame/1000, 2=BW/5MHz
+    iqi = (short*) malloc(28*1*15360*sizeof(short));
 
     FILE* file_iq;
     char filename_iq[500];
-    sprintf(filename_iq, "/mnt/hd3/gkchai/ul/iq_mcs=%d_snr=%f_nrb=%d_subf=%d_ch=%d_rx=%d.dat", mcs, 30.000000, 50, 3, 1, 0);
-    printf("Reading ... %s\n", filename_iq);
-    file_iq = fopen(filename_iq, "r");
-    i = 0;
+
+    // load samples for all mcs
     j = 0;
 
-    // changed 2*30720000 to 2*3072000 ?
-    while (fscanf(file_iq, "%hi\t%hi\n", &iqr[i], &iqi[j]) != EOF && i < 2*30720){
-        i++;
-        j++;
+    for (i=0; i<28; i++){
+
+        sprintf(filename_iq, "/mnt/hd3/gkchai/ul/iq_mcs=%d_snr=%f_nrb=%d_subf=%d_ch=%d_rx=%d.dat", i, (float)snr, 50, 3, 1, 0);
+        printf("Reading ... %s\n", filename_iq);
+        file_iq = fopen(filename_iq, "r");
+
+        int k = 0;
+        // changed 1*15360000 to 1*1536000 ?
+        while (fscanf(file_iq, "%hi\t%hi\n", &iqr[j], &iqi[j]) != EOF && k < 1*15360){
+            k++;
+            j++;
+        }
+        fclose(file_iq);
     }
-    fclose(file_iq);
+
 
     // configure the baseband
-    configure(0, NULL, 0, iqr, iqi, mcs, num_ants);
+    configure(0, NULL, 0, iqr, iqi, mcs, num_ants, num_bss);
 
     /**************************************************************************/
 
@@ -565,9 +547,8 @@ int main(int argc, char** argv){
 
     /**************************************************************************/
     trans_threads = malloc(trans_nthreads*sizeof(pthread_t));
-    gd_thread_data_t *trans_tdata, *timer_tdata;
+    gd_thread_data_t *trans_tdata;
     trans_tdata = malloc(trans_nthreads*sizeof(gd_thread_data_t));
-    timer_tdata = malloc(1*sizeof(gd_thread_data_t));
 
     proc_threads = malloc(proc_nthreads*sizeof(pthread_t));
     gd_thread_data_t *proc_tdata;
@@ -602,13 +583,6 @@ int main(int argc, char** argv){
     gd_trans_initialize(node_socks, num_nodes);
     gd_trans_trigger();
 
-    timer_tdata->duration = duration;
-    timer_tdata->sched_policy = sched;
-    timer_tdata->sched_prio = priority;
-    timer_tdata->deadline = usec_to_timespec(500);
-    timer_tdata->period = usec_to_timespec(1000);
-    timer_tdata->cpuset = malloc(sizeof(cpu_set_t));
-    CPU_SET( 2, timer_tdata->cpuset);
 
     for(i= 0; i < trans_nthreads; i++){
 
@@ -640,22 +614,20 @@ int main(int argc, char** argv){
         proc_tdata[i].ind = i;
         proc_tdata[i].duration = duration;
         proc_tdata[i].sched_policy = sched;
-        proc_tdata[i].deadline = usec_to_timespec(deadline);
-        proc_tdata[i].period = usec_to_timespec(num_cores_bs*1000);
+        proc_tdata[i].deadline = usec_to_timespec(num_cores_bs*1000 - 0);
+        proc_tdata[i].period = usec_to_timespec(2000);
         sprintf(tmp_str, "../log_static/exp%s_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d.log",
             exp_str, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs);
 
         proc_tdata[i].log_handler = fopen(tmp_str, "w");
         proc_tdata[i].sched_prio = priority;
         proc_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
-        CPU_SET( 8+i, proc_tdata[i].cpuset);
+        CPU_SET( 2+i, proc_tdata[i].cpuset);
     }
 
     struct timespec t_start;
     // starting time
     clock_gettime(CLOCK_MONOTONIC, &t_start);
-    timer_tdata->main_start = t_start;
-    thread_ret = pthread_create(&timer_thread, NULL, timer_main, timer_tdata);
 
     log_notice("Starting trans threads");
     // start threads
@@ -680,7 +652,6 @@ int main(int argc, char** argv){
     }
 
 
-    pthread_join(timer_thread, NULL);
     for (i = 0; i < trans_nthreads; i++)
     {
         pthread_join(trans_threads[i], NULL);

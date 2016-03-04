@@ -112,8 +112,8 @@ void
 proc_log_timing(FILE *handler, gd_proc_timing_meta_t *t)
 {
         fprintf(handler,
-        "%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%ld\n",
-        t->ind,
+        "%d\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%d\t%d\t%d\n",
+        t->mcs,
         t->abs_period_time,
         t->abs_deadline,
         t->abs_start_time,
@@ -121,11 +121,10 @@ proc_log_timing(FILE *handler, gd_proc_timing_meta_t *t)
         t->rel_period_time,
         t->rel_start_time,
         t->rel_end_time,
-        t->original_duration,
         t->actual_duration,
-        t->no_offload,
-        t->dur_offload,
-        t->miss
+        t->miss,
+        t->iter,
+        t->kill
         );
 }
 
