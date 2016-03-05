@@ -29,15 +29,16 @@ static int *subframe_avail;
 static int running;
 static int debug_trans = 1;
 static int mcs;
+static int var;
 
 gd_rng_buff_t *rng_buff;
 int *deadline_miss_flag;
 int mcs_data[95];
 
-
-char exp_str[100];
 int *migrate_avail, *migrate_to;
 long *state;
+int trans_dur_usec = 600;
+
 
 double decode_time[28] = {15.9,20.7,25.5,32.9,41.8,50.6,59.5,71.4,80.3,92.1,92.1,100.9,114.2,131.9,149.3,162.6,175.9,175.9,189.2,
 211.3,224.5,246.4,264.1,293.4,315.5,326.5,352.4,365.4};
@@ -116,6 +117,7 @@ void* trans_main(void* arg){
 
 
     struct timespec t_next, t_deadline, trans_start, trans_end, t_temp, t_now;
+    struct timespec trans_dur = usec_to_timespec(trans_dur_usec);
 
     t_next = tdata->main_start;
     int period = 0;
@@ -134,8 +136,10 @@ void* trans_main(void* arg){
         clock_gettime(CLOCK_MONOTONIC, &trans_start);
         /******* Main transport ******/
         if (debug_trans==1) {
-            int j, k;
-            for(j=0; j <60000; j++){k=k+1;}
+
+            t_temp = timespec_add(&trans_start, &trans_dur);
+            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp, NULL);
+
         } else {
             gd_trans_read(tdata->conn_desc);
         }
@@ -276,8 +280,13 @@ void* proc_main(void* arg){
         t_next = timespec_add(&t_now, &tdata->deadline);
         t_deadline = timespec_add(&t_deadline, &tdata->period);
 
+        if (var){
+            curr_mcs = mcs_data[period%95];
+        }else{
+            curr_mcs = mcs;
+        }
 
-        curr_mcs = mcs_data[period%95];
+
         configure_runtime(curr_mcs, (short*)(iqr + 15360*curr_mcs), (short*)(iqi + 15360*curr_mcs), bs_id);
 
 
@@ -286,7 +295,7 @@ void* proc_main(void* arg){
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
         // // check if there is enough time to decode else kill
-        if (timespec_to_usec(&t_next) - (50 + timespec_to_usec(&t_now) + 0*5*decode_time[curr_mcs]) < 0.0){
+        if (timespec_to_usec(&t_next) - (50 + timespec_to_usec(&t_now) + 3*decode_time[curr_mcs]) < 0.0){
             kill = 1;
             ret = -1;
         }else{
@@ -316,16 +325,16 @@ void* proc_main(void* arg){
         timing->abs_deadline = timespec_to_usec(&t_deadline);
         timing->rel_deadline = timing->abs_deadline - abs_period_start;
         timing->actual_duration = timing->rel_end_time - timing->rel_start_time;
-        timing->miss = timing->rel_deadline > timing->rel_end_time ? 0 : 1;
+        timing->miss = (timing->rel_deadline > timing->rel_end_time ? 0 : 1)| kill;
         timing->iter = ret;
         timing->kill = kill;
-
+        timing->migrated = 0;
         period++;
     }
 
     log_notice("Writing to log ... proc thread %d", id);
     fprintf(tdata->log_handler, "#MCS\ttabs_period\tabs_deadline\tabs_start\tabs_end"
-                   "\trel_period\trel_start\trel_end\tduration\tmiss\titer\tkill\n");
+                   "\trel_period\trel_start\trel_end\tduration\tmiss\titer\tkill\tmigrated\n");
 
     int i;
     for (i=0; i < nperiods; i++){
@@ -385,7 +394,6 @@ int main(int argc, char** argv){
     int duration = 50; //secs
     int priority = 10;
     int sched = SCHED_FIFO;
-    sprintf(exp_str, "offload");
     mcs = 20;
     int lmax  = 1500;
     int deadline = 1500;
@@ -393,6 +401,7 @@ int main(int argc, char** argv){
     num_ants = 1; // antennas per radio
     N_P = 8;
     int snr = 30;
+    var = 1;
 
     char c;
     while ((c = getopt (argc, argv, "h::M:A:L:s:d:p:S:e:D:Z:N:m:")) != -1) {
@@ -448,21 +457,7 @@ int main(int argc, char** argv){
               break;
 
             case 'e':
-              switch((char)*optarg){
-
-                  case 'P':
-                    sprintf(exp_str, "plain");
-                    break;
-
-                  case 'O':
-                    sprintf(exp_str, "offload");
-                    break;
-
-                  default:
-                    log_error("Unsupported exp!\n");
-                    exit(-1);
-                    break;
-              }
+              var = atoi(optarg);
               break;
 
             case 'D':
@@ -483,7 +478,7 @@ int main(int argc, char** argv){
 
             case 'h':
             default:
-              printf("%s -h(elp) -M num_bss -A num_ants  -L lmax -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment ('P'plain /'O' offload) -D transport debug(0 or 1) -m MCS\n\nExample usage: sudo ./gd_lte -M 4 -A 1 -L 2000 -s 1000 -d 10 -p 10 -S F -e P -D 1 -N 30 -m 20\n",
+              printf("%s -h(elp) -M num_bss -A num_ants  -L lmax -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment (0 fixed_mcs /1 var_mcs) -D transport debug(0 or 1) -m MCS\n\nExample usage: sudo ./gd_lte -M 4 -A 1 -L 2000 -s 1000 -d 10 -p 10 -S F -e 1 -D 1 -N 30 -m 20\n",
                      argv[0]);
               exit(1);
               break;
@@ -592,8 +587,8 @@ int main(int argc, char** argv){
         trans_tdata[i].deadline = usec_to_timespec(500);
         trans_tdata[i].period = usec_to_timespec(1000);
 
-        sprintf(tmp_str, "../log_static/exp%s_samp%d_trans%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d.log",
-            exp_str, num_samples, i, priority, tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs);
+        sprintf(tmp_str, "../log_static/exp%d_samp%d_trans%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d.log",
+            var, num_samples, i, priority, tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs);
         trans_tdata[i].log_handler = fopen(tmp_str, "w");
         trans_tdata[i].sched_prio = priority;
         trans_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
@@ -614,10 +609,10 @@ int main(int argc, char** argv){
         proc_tdata[i].ind = i;
         proc_tdata[i].duration = duration;
         proc_tdata[i].sched_policy = sched;
-        proc_tdata[i].deadline = usec_to_timespec(num_cores_bs*1000 - 0);
+        proc_tdata[i].deadline = usec_to_timespec(num_cores_bs*1000 - trans_dur_usec);
         proc_tdata[i].period = usec_to_timespec(2000);
-        sprintf(tmp_str, "../log_static/exp%s_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d.log",
-            exp_str, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs);
+        sprintf(tmp_str, "../log_static/exp%d_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d.log",
+            var, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs);
 
         proc_tdata[i].log_handler = fopen(tmp_str, "w");
         proc_tdata[i].sched_prio = priority;

@@ -33,7 +33,8 @@ unsigned char harq_pid;
 // LTE_DL_FRAME_PARMS *frame_parms;
 uint8_t cooperation_flag = 0; //0 no cooperation, 1 delay diversity, 2 Alamouti
 // uint32_t UL_alloc_pdu;
-
+uint8_t n_rx;
+uint8_t *var;
 
 void lte_param_init(unsigned char N_tx, unsigned char N_rx,unsigned char transmission_mode,uint8_t extended_prefix_flag,uint8_t N_RB_DL,uint8_t frame_type,uint8_t tdd_config,uint8_t osf, int num_bss)
 {
@@ -41,6 +42,7 @@ void lte_param_init(unsigned char N_tx, unsigned char N_rx,unsigned char transmi
       LTE_DL_FRAME_PARMS *lte_frame_parms[num_bss];
       PHY_vars_eNB = malloc(num_bss*sizeof(PHY_VARS_eNB*));
       PHY_vars_UE = malloc(num_bss*sizeof(PHY_VARS_UE*));
+      var = malloc(num_bss*sizeof(uint8_t));
 
       randominit(0);
       set_taus_seed(0);
@@ -78,25 +80,33 @@ void lte_param_init(unsigned char N_tx, unsigned char N_rx,unsigned char transmi
 
 }
 
-void subtask_fft(unsigned char l, int id){
+void subtask_fft(int l, int id){
 
     slot_fep_ul(&PHY_vars_eNB[id]->lte_frame_parms,
                 &PHY_vars_eNB[id]->lte_eNB_common_vars,
-                l%(PHY_vars_eNB[id]->lte_frame_parms.symbols_per_tti/2),
-                l/(PHY_vars_eNB[id]->lte_frame_parms.symbols_per_tti/2),
+                (l)%(PHY_vars_eNB[id]->lte_frame_parms.symbols_per_tti/2),
+                (l)/(PHY_vars_eNB[id]->lte_frame_parms.symbols_per_tti/2),
                 0,
                 0);
 }
 
 
-void subtask_demod(unsigned char l, int id){
-    //TODO: implement this
+void subtask_demod_init(int id){
+    var[id] =  sub_rx_ulsch_init(PHY_vars_eNB[id], subframe, 0, 0, PHY_vars_eNB[id]->ulsch_eNB, cooperation_flag);
+}
 
 
+void subtask_demod_end(int id){
+    sub_rx_ulsch_end(subframe, PHY_vars_eNB[id],  PHY_vars_eNB[id]->ulsch_eNB);
+}
+
+
+void subtask_demod(uint32_t l, int id){
+     sub_rx_ulsch_eq(l, subframe, PHY_vars_eNB[id], PHY_vars_eNB[id]->ulsch_eNB, var[id]);
 }
 
 void task_fft(int id){
-    unsigned char l;
+    int l;
     for (l=subframe*PHY_vars_UE[id]->lte_frame_parms.symbols_per_tti; l<((1+subframe)*PHY_vars_UE[id]->lte_frame_parms.symbols_per_tti); l++) {
             // printf("l = %d\n",l);
             subtask_fft(l, id);
@@ -131,7 +141,8 @@ void configure(int argc, char **argv, int trials, short* iqr, short* iqi, int mm
     unsigned char awgn_flag = 0 ;
     SCM_t channel_model=Rice1;
     unsigned int coded_bits_per_codeword,nsymb;
-    uint8_t transmission_mode=1,n_rx=nrx,n_tx=1;
+    uint8_t transmission_mode=1,n_tx=1;
+    n_rx = nrx;
     FILE *input_fdUL=NULL;
     short input_val_str, input_val_str2;
     int n_frames=1000;
@@ -617,8 +628,12 @@ void configure(int argc, char **argv, int trials, short* iqr, short* iqi, int mm
                     /////////////////////
                     int aa = 0; int ii=0;
                     for(ii=0; ii< PHY_vars_eNB[loop]->lte_frame_parms.samples_per_tti; ii++){
+
+                        for (aa=0; aa < n_rx; aa++){
+
                         ((short*) &PHY_vars_eNB[loop]->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB[loop]->lte_frame_parms.samples_per_tti*subframe])[2*ii] = iqr[ii];
                         ((short*) &PHY_vars_eNB[loop]->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB[loop]->lte_frame_parms.samples_per_tti*subframe])[2*ii +1] = iqi[ii];
+                        }
                     }
 
                         printf("Loaded %d IQ samples\n", PHY_vars_eNB[loop]->lte_frame_parms.samples_per_tti);
@@ -672,10 +687,14 @@ void configure_runtime(int new_mcs, short* iqr, short* iqi, int id){
 
 
 
-  int ii = 0;
+  int ii=0; int aa=0;
   for(ii=0; ii< PHY_vars_eNB[id]->lte_frame_parms.samples_per_tti; ii++){
-    ((short*) &PHY_vars_eNB[id]->lte_eNB_common_vars.rxdata[0][0][PHY_vars_eNB[id]->lte_frame_parms.samples_per_tti*subframe])[2*ii] = iqr[ii];
-    ((short*) &PHY_vars_eNB[id]->lte_eNB_common_vars.rxdata[0][0][PHY_vars_eNB[id]->lte_frame_parms.samples_per_tti*subframe])[2*ii +1] = iqi[ii];
+    for (aa=0; aa < n_rx; aa++){
+        ((short*) &PHY_vars_eNB[id]->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB[id]->lte_frame_parms.samples_per_tti*subframe])[2*ii] = iqr[ii];
+        ((short*) &PHY_vars_eNB[id]->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB[id]->lte_frame_parms.samples_per_tti*subframe])[2*ii +1] = iqi[ii];
+
+        }
+
     }
 
   remove_7_5_kHz(PHY_vars_eNB[id],subframe<<1);

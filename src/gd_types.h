@@ -82,6 +82,7 @@ typedef struct _gd_proc_timing_meta_t{
     int kill;
     int iter;
     int miss;
+    int migrated;
 
 } gd_proc_timing_meta_t;
 

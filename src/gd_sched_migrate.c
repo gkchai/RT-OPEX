@@ -35,8 +35,15 @@ gd_rng_buff_t *rng_buff;
 int *deadline_miss_flag;
 
 
+typedef struct migrate_t {
+    int start_id; //inclusive
+    int count; // [start_id ... start_id + count - 1]
+} migrate;
+
 char exp_str[100];
-int *migrate_avail, *migrate_to;
+int *migrate_to;
+migrate* migrate_avail;
+
 long *state;
 
 double decode_time[28] = {15.9,20.7,25.5,32.9,41.8,50.6,59.5,71.4,80.3,92.1,92.1,100.9,114.2,131.9,149.3,162.6,175.9,175.9,189.2,
@@ -310,7 +317,6 @@ void* proc_main(void* arg){
 
 
 
-
         // wait for the transport thread to wake me
 		// printf("what's value of subframe_avail[id]:%d\n",subframe_avail[id]);
         pthread_mutex_lock(&subframe_mutex[id]);
@@ -324,19 +330,15 @@ void* proc_main(void* arg){
         /****** do LTE processing *****/
         clock_gettime(CLOCK_MONOTONIC, &proc_start);
         t_next = timespec_add(&proc_start, &tdata->period);
-
-
-
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
 		//check for migration opportunity
 		//iterating over the processing threads and studying which ones are available for migration
 		int nOffload = 0;
 		int max_off = 0;
-		int tasksRemain = 12*num_ants;
-//		printf("********************START\n");
+		int tasksRemain = 14;
+        int cur_start_id =0;
         for (int cur = 0; cur<proc_nthreads;cur++) {
-			//mutex lock for state[cur]
 
 			pthread_mutex_lock(&state_mutex[cur]);
 		 	avail_time = state[cur] - timespec_to_usec(&t_now);
@@ -354,19 +356,19 @@ void* proc_main(void* arg){
 			// //update state[cur] to be -1
 			if (noff>0) {
 				state[cur]=-1;
-				migrate_avail[cur]=1;
+				migrate_avail[cur].count=noff;
+                migrate_avail[cur].start_id = cur_start_id;
 			}
+            cur_start_id +=noff;
 			pthread_mutex_unlock(&state_mutex[cur]);
 
-			//mutex unlock for state[cur]
 		 }
 
-//		 printf("********************END\n");
 
 		 if (nOffload == 0){
              task_fft();
          } else {
-             for (int left_iter = tasksRemain; left_iter< 12*num_ants;left_iter ++) {
+             for (int left_iter = cur_start_id; left_iter< 14;left_iter ++) {
 		 		subtask_fft(left_iter);
 		 	}
 
@@ -375,7 +377,7 @@ void* proc_main(void* arg){
         clock_gettime(CLOCK_MONOTONIC, &t_now);
         // check if there is enough time to decode else kill
         if (timespec_to_usec(&t_next) - (timespec_to_usec(&t_now) + 5*decode_time[mcs]) < 0.0){
-            printf("I kill myslef\n");
+            // printf("I kill myslef\n");
         }else{
             task_decode();
         }
@@ -388,9 +390,8 @@ void* proc_main(void* arg){
      //   printf("remtime[%d] is:%li\n",id, rem_time);
 
         if (rem_time > 50){
-            // printf("I am setting state[id]\n");
-			state[id]=timespec_to_usec(&t_next);
 
+			state[id]=timespec_to_usec(&t_next);
 			struct timespec t_before, t_after;
 			clock_gettime(CLOCK_MONOTONIC, &t_before);
 
@@ -398,12 +399,15 @@ void* proc_main(void* arg){
             clock_gettime(CLOCK_MONOTONIC, &t_now);
 			int rvd_task = 0;
             while( timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next)-50 ) {
-				if (migrate_avail[id] == 1) {
-					migrate_avail[id]=0;
+				if (migrate_avail[id].count > 0) {
 					rvd_task = 1;
-					for (int ii=0;ii<2000;ii++) {} //mimic offloaded task for now
-
+                    int i = 0;
+                    for (i=migrate_avail[id].start_id; i < migrate_avail[id].start_id + migrate_avail[id].count; i++){
+                        subtask_fft(i);
+                    }
+                    migrate_avail[id].count=0;
 				}
+
 				clock_gettime(CLOCK_MONOTONIC, &t_now);
 				rem_time = timespec_to_usec(&t_next)  - timespec_to_usec(&t_now);
 				if (rem_time>50) {
@@ -413,8 +417,6 @@ void* proc_main(void* arg){
              }
 			clock_gettime(CLOCK_MONOTONIC, &t_after);
 			// printf("remtime[%d] is:%li, slept for:%li,rcvd task:%d\n",id, rem_time,timespec_to_usec(&t_after)-timespec_to_usec(&t_before),rvd_task);
-
-
 
         }
         state[id] = -1;
@@ -655,7 +657,7 @@ int main(int argc, char** argv){
     common_time = (struct timespec*)malloc((num_cores_bs)*sizeof(struct timespec));
     subframe_avail = (int *)malloc(proc_nthreads*sizeof(int));
     state = (long *)malloc(proc_nthreads*sizeof(long));
-    migrate_avail = (int *)malloc(proc_nthreads*sizeof(int));
+    migrate_avail = (migrate *)malloc(proc_nthreads*sizeof(migrate));
     migrate_to = (int *)malloc(proc_nthreads*sizeof(int));
 
 
@@ -665,6 +667,8 @@ int main(int argc, char** argv){
         pthread_mutex_init(&subframe_mutex[i], NULL);
         pthread_mutex_init(&state_mutex[i], NULL);
         pthread_cond_init(&subframe_cond[i], NULL);
+        migrate_avail[i].count = 0;
+        migrate_avail[i].cur_start_id = 0;
     }
 
     /* install a signal handler for proper shutdown */
