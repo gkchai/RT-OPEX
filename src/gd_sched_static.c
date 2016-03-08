@@ -233,8 +233,6 @@ void* proc_main(void* arg){
     thread_common(pthread_self(), tdata);
     unsigned long abs_period_start = timespec_to_usec(&tdata->main_start);
     struct timespec t_offset;
-    t_offset = usec_to_timespec(id*num_cores_bs*1000);
-    // tdata->main_start = timespec_add(&tdata->main_start, &t_offset);
     struct timespec proc_start, proc_end, t_next, t_deadline;
     gd_proc_timing_meta_t *timings;
     long duration_usec = (tdata->duration * 1e6);
@@ -248,16 +246,19 @@ void* proc_main(void* arg){
     gd_proc_timing_meta_t *timing;
 
     t_next = tdata->main_start;
-    t_deadline = tdata->main_start;
     int period = 0;
     int deadline_miss=0;
 
     long time_deadline, proc_actual_time, avail_time;
     struct timespec t_temp, t_now;
-    log_notice("Starting proc thread %d nperiods %d %lu", id, nperiods, timespec_to_usec(&t_offset));
 
     int bs_id = (int)(id/num_cores_bs);
     int subframe_id =  id%(num_cores_bs);
+
+    t_offset = usec_to_timespec(subframe_id*1000);
+    t_deadline = timespec_add(&tdata->main_start, &t_offset);
+
+    log_notice("Starting proc thread %d nperiods %d %lu", id, nperiods, timespec_to_usec(&t_offset));
     log_notice("checking subframe mutex %d", bs_id*num_cores_bs + subframe_id);
     int kill = 0;
     int ret= 0;
@@ -309,7 +310,7 @@ void* proc_main(void* arg){
         clock_gettime(CLOCK_MONOTONIC, &proc_end);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
-        if (timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next)-50){
+        while (timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next)-50){
                             clock_gettime(CLOCK_MONOTONIC, &t_now);
         }
 
@@ -404,7 +405,7 @@ int main(int argc, char** argv){
     var = 1;
 
     char c;
-    while ((c = getopt (argc, argv, "h::M:A:L:s:d:p:S:e:D:Z:N:m:")) != -1) {
+    while ((c = getopt (argc, argv, "h::M:A:L:s:d:p:S:e:D:Z:N:m:R:")) != -1) {
         switch (c) {
             case 'M':
               num_bss = atoi(optarg);
@@ -464,10 +465,6 @@ int main(int argc, char** argv){
               debug_trans = atoi(optarg);
               break;
 
-            case 'm':
-                mcs = atoi(optarg);
-                break;
-
             case 'L':
                 lmax = atoi(optarg);
                 break;
@@ -476,9 +473,18 @@ int main(int argc, char** argv){
                 snr = atoi(optarg);
                 break;
 
+            case 'R':
+                trans_dur_usec = atoi(optarg);
+                break;
+
+            case 'm':
+                mcs = atoi(optarg);
+                break;
+
+
             case 'h':
             default:
-              printf("%s -h(elp) -M num_bss -A num_ants  -L lmax -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment (0 fixed_mcs /1 var_mcs) -D transport debug(0 or 1) -m MCS\n\nExample usage: sudo ./gd_lte -M 4 -A 1 -L 2000 -s 1000 -d 10 -p 10 -S F -e 1 -D 1 -N 30 -m 20\n",
+              printf("%s -h(elp) -M num_bss -A num_ants  -L lmax -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment (0 fixed_mcs /1 var_mcs) -D transport debug(0 or 1) -m MCS\n\nExample usage: sudo ./gd_lte_static.o -M 4 -A 1 -L 2000 -s 1000 -d 10 -p 10 -S F -e 1 -D 1 -N 30 -m 20 -R 600\n",
                      argv[0]);
               exit(1);
               break;
@@ -587,8 +593,8 @@ int main(int argc, char** argv){
         trans_tdata[i].deadline = usec_to_timespec(500);
         trans_tdata[i].period = usec_to_timespec(1000);
 
-        sprintf(tmp_str, "../log_static/exp%d_samp%d_trans%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d.log",
-            var, num_samples, i, priority, tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs);
+        sprintf(tmp_str, "../log_static/exp%d_samp%d_trans%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d_delay%d.log",
+            var, num_samples, i, priority, tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs, trans_dur_usec);
         trans_tdata[i].log_handler = fopen(tmp_str, "w");
         trans_tdata[i].sched_prio = priority;
         trans_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
@@ -611,8 +617,8 @@ int main(int argc, char** argv){
         proc_tdata[i].sched_policy = sched;
         proc_tdata[i].deadline = usec_to_timespec(num_cores_bs*1000 - trans_dur_usec);
         proc_tdata[i].period = usec_to_timespec(2000);
-        sprintf(tmp_str, "../log_static/exp%d_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d.log",
-            var, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs);
+        sprintf(tmp_str, "../log_static/exp%d_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d_delay%d.log",
+            var, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs, trans_dur_usec);
 
         proc_tdata[i].log_handler = fopen(tmp_str, "w");
         proc_tdata[i].sched_prio = priority;

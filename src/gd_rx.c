@@ -82,6 +82,11 @@ void lte_param_init(unsigned char N_tx, unsigned char N_rx,unsigned char transmi
 
 void subtask_fft(int l, int id){
 
+    if (l < subframe*PHY_vars_UE[id]->lte_frame_parms.symbols_per_tti){
+        l = subframe*PHY_vars_UE[id]->lte_frame_parms.symbols_per_tti + l;
+    }
+
+
     slot_fep_ul(&PHY_vars_eNB[id]->lte_frame_parms,
                 &PHY_vars_eNB[id]->lte_eNB_common_vars,
                 (l)%(PHY_vars_eNB[id]->lte_frame_parms.symbols_per_tti/2),
@@ -108,7 +113,6 @@ void subtask_demod(uint32_t l, int id){
 void task_fft(int id){
     int l;
     for (l=subframe*PHY_vars_UE[id]->lte_frame_parms.symbols_per_tti; l<((1+subframe)*PHY_vars_UE[id]->lte_frame_parms.symbols_per_tti); l++) {
-            // printf("l = %d\n",l);
             subtask_fft(l, id);
         }
 }
@@ -658,6 +662,8 @@ void configure_runtime(int new_mcs, short* iqr, short* iqi, int id){
 
 
 
+
+
   ((DCI0_10MHz_FDD_t*)&UL_alloc_pdu)->mcs     = new_mcs;
   generate_ue_ulsch_params_from_dci((void *)&UL_alloc_pdu,
                                     14,
@@ -687,16 +693,29 @@ void configure_runtime(int new_mcs, short* iqr, short* iqi, int id){
 
 
 
+ //                    int round = 0;
+
+ //                    harq_pid = subframe2harq_pid(&PHY_vars_UE[id]->lte_frame_parms,PHY_vars_UE[id]->frame_tx,subframe);
+ //                     // fflush(stdout);
+
+ //                    PHY_vars_eNB[id]->ulsch_eNB[0]->harq_processes[harq_pid]->round=round;
+ //                    PHY_vars_UE[id]->ulsch_ue[0]->harq_processes[harq_pid]->round=round;
+ //                    PHY_vars_eNB[id]->ulsch_eNB[0]->harq_processes[harq_pid]->rvidx = round>>1;
+ //                    PHY_vars_UE[id]->ulsch_ue[0]->harq_processes[harq_pid]->rvidx = round>>1;
+
+
+
   int ii=0; int aa=0;
   for(ii=0; ii< PHY_vars_eNB[id]->lte_frame_parms.samples_per_tti; ii++){
     for (aa=0; aa < n_rx; aa++){
         ((short*) &PHY_vars_eNB[id]->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB[id]->lte_frame_parms.samples_per_tti*subframe])[2*ii] = iqr[ii];
         ((short*) &PHY_vars_eNB[id]->lte_eNB_common_vars.rxdata[0][aa][PHY_vars_eNB[id]->lte_frame_parms.samples_per_tti*subframe])[2*ii +1] = iqi[ii];
 
-        }
-
+      }
     }
 
+
+  lte_eNB_I0_measurements(PHY_vars_eNB[id], 0, 1);
   remove_7_5_kHz(PHY_vars_eNB[id],subframe<<1);
   remove_7_5_kHz(PHY_vars_eNB[id],1+(subframe<<1));
 

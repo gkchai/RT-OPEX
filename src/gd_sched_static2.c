@@ -10,19 +10,22 @@ short* iqi;
 //global variables
 static pthread_t *trans_threads;
 static pthread_t *proc_threads;
+static pthread_t *extra_threads;
 
 static int trans_nthreads;
 static int proc_nthreads;
+static int extra_nthreads;
 static int num_bss;
 static int num_ants;
 static int num_cores_bs;
 
 static pthread_mutex_t *subframe_mutex;
-static pthread_mutex_t *state_mutex;
 static pthread_cond_t *subframe_cond;
-static struct timespec *common_time;
-static struct timespec common_time_ref;
-static struct timespec common_time_next;
+
+static pthread_mutex_t *migrate_mutex;
+static pthread_cond_t *migrate_cond;
+static pthread_mutex_t *migrate_fin_mutex;
+static pthread_cond_t *migrate_fin_cond;
 
 
 static int *subframe_avail;
@@ -31,13 +34,11 @@ static int debug_trans = 1;
 static int mcs;
 static int var;
 
-gd_rng_buff_t *rng_buff;
-int *deadline_miss_flag;
 int mcs_data[95];
 
-int *migrate_avail, *migrate_to;
-long *state;
-int trans_dur_usec = 850;
+int *migrate;
+int *migrate_fin;
+int trans_dur_usec = 600;
 
 
 double decode_time[28] = {15.9,20.7,25.5,32.9,41.8,50.6,59.5,71.4,80.3,92.1,92.1,100.9,114.2,131.9,149.3,162.6,175.9,175.9,189.2,
@@ -227,14 +228,12 @@ void* trans_main(void* arg){
 
 void* proc_main(void* arg){
 
-    // acquire lock, read subframes and process
+       // acquire lock, read subframes and process
     gd_thread_data_t *tdata = (gd_thread_data_t *) arg;
     int id = tdata->ind;
     thread_common(pthread_self(), tdata);
     unsigned long abs_period_start = timespec_to_usec(&tdata->main_start);
     struct timespec t_offset;
-    t_offset = usec_to_timespec(id*num_cores_bs*1000);
-    // tdata->main_start = timespec_add(&tdata->main_start, &t_offset);
     struct timespec proc_start, proc_end, t_next, t_deadline;
     gd_proc_timing_meta_t *timings;
     long duration_usec = (tdata->duration * 1e6);
@@ -248,20 +247,25 @@ void* proc_main(void* arg){
     gd_proc_timing_meta_t *timing;
 
     t_next = tdata->main_start;
-    t_deadline = tdata->main_start;
     int period = 0;
     int deadline_miss=0;
 
     long time_deadline, proc_actual_time, avail_time;
     struct timespec t_temp, t_now;
-    log_notice("Starting proc thread %d nperiods %d %lu", id, nperiods, timespec_to_usec(&t_offset));
 
     int bs_id = (int)(id/num_cores_bs);
     int subframe_id =  id%(num_cores_bs);
+
+    t_offset = usec_to_timespec(subframe_id*1000);
+    t_deadline = timespec_add(&tdata->main_start, &t_offset);
+
+    log_notice("Starting proc thread %d nperiods %d %lu cpu = %d", id, nperiods, timespec_to_usec(&t_offset), sched_getcpu());
     log_notice("checking subframe mutex %d", bs_id*num_cores_bs + subframe_id);
     int kill = 0;
     int ret= 0;
     int curr_mcs = 0;
+    int i=0;
+
     while(running && (period < nperiods)){
 
 
@@ -289,13 +293,39 @@ void* proc_main(void* arg){
 
         configure_runtime(curr_mcs, (short*)(iqr + 15360*curr_mcs), (short*)(iqi + 15360*curr_mcs), bs_id);
 
+        pthread_mutex_lock(&migrate_mutex[id]);
+        migrate[id] = 1;
+        pthread_cond_signal(&migrate_cond[id]);
+        pthread_mutex_unlock(&migrate_mutex[id]);
 
-        task_fft(bs_id);
+        for (i=0; i <7; i++){
+            subtask_fft(i, bs_id);
+        }
+
+        // task_fft(bs_id);
+
+        clock_gettime(CLOCK_MONOTONIC, &t_temp);
+        pthread_mutex_lock(&migrate_fin_mutex[id]);
+        while (migrate_fin[id]==0){
+            // pthread_cond_timedwait(&migrate_fin_cond[id], &migrate_fin_mutex[id], &t_next);
+            pthread_cond_wait(&migrate_fin_cond[id], &migrate_fin_mutex[id]);
+        }
+        if (migrate_fin[id] ==-1){
+            pthread_mutex_unlock(&migrate_fin_mutex[id]);
+            break;
+        }
+        migrate_fin[id] = 0;
+        pthread_mutex_unlock(&migrate_fin_mutex[id]);
+        clock_gettime(CLOCK_MONOTONIC, &t_now);
+        // printf("wait time [%d, %d] = %ld, tnext = %lu, now = %lu\n", id, bs_id, timespec_to_usec(&t_now) - timespec_to_usec(&t_temp), timespec_to_usec(&t_next), timespec_to_usec(&t_now));
+
+
+
         task_demod(bs_id);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
         // // check if there is enough time to decode else kill
-        if (timespec_to_usec(&t_next) - (50 + timespec_to_usec(&t_now) + 5*decode_time[curr_mcs]) < 0.0){
+        if (timespec_to_usec(&t_next) - (50 + timespec_to_usec(&t_now) + 3*decode_time[curr_mcs]) < 0.0){
             kill = 1;
             ret = -1;
         }else{
@@ -303,13 +333,12 @@ void* proc_main(void* arg){
             ret = task_decode(bs_id);
         }
 
-
         // ret = task_all(bs_id);
 
         clock_gettime(CLOCK_MONOTONIC, &proc_end);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
-        if (timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next)-50){
+        while (timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next)-50){
                             clock_gettime(CLOCK_MONOTONIC, &t_now);
         }
 
@@ -335,66 +364,74 @@ void* proc_main(void* arg){
     log_notice("Writing to log ... proc thread %d", id);
     fprintf(tdata->log_handler, "#MCS\ttabs_period\tabs_deadline\tabs_start\tabs_end"
                    "\trel_period\trel_start\trel_end\tduration\tmiss\titer\tkill\tmigrated\n");
-
-    int i;
     for (i=0; i < nperiods; i++){
         proc_log_timing(tdata->log_handler, &timings[i]);
     }
 
     fclose(tdata->log_handler);
     log_notice("Exit proc thread %d",id);
+
+    migrate[id] = -1;
+    pthread_mutex_lock(&migrate_mutex[id]);
+    pthread_cond_signal(&migrate_cond[id]);
+    pthread_mutex_unlock(&migrate_mutex[id]);
     pthread_exit(NULL);
 }
 
-
+// one extra thread per bs
 void* extra_main(void* arg){
 
     // acquire lock, read subframes and process
     gd_thread_data_t *tdata = (gd_thread_data_t *) arg;
     int id = tdata->ind;
     thread_common(pthread_self(), tdata);
-    unsigned long abs_period_start = timespec_to_usec(&tdata->main_start);
-    struct timespec t_offset;
-    t_offset = usec_to_timespec(id*num_cores_bs*1000);
-    // tdata->main_start = timespec_add(&tdata->main_start, &t_offset);
-    struct timespec proc_start, proc_end, t_next, t_deadline;
-    gd_proc_timing_meta_t *timings;
     long duration_usec = (tdata->duration * 1e6);
-    int nperiods = (int) floor(duration_usec /
+     int nperiods = (int) floor(duration_usec /
             (double) timespec_to_usec(&tdata->period));
 
-    //nperiods reduce a little to prevents trans finishing before proc; ugly fix
-    nperiods-=500;
 
-    timings = (gd_proc_timing_meta_t*) malloc ( nperiods * sizeof(gd_proc_timing_meta_t));
-    gd_proc_timing_meta_t *timing;
-
-    t_next = tdata->main_start;
-    t_deadline = tdata->main_start;
-    int period = 0;
-
-    long time_deadline, proc_actual_time, avail_time;
-    struct timespec t_temp, t_now;
-    log_notice("Starting extra thread %d\n", id);
-
+    nperiods += 1000;
+    log_notice("Starting extra thread %d cpu = %d", id, sched_getcpu());
+    int i=0, period=0;
     int bs_id = (int)(id/num_cores_bs);
-    int subframe_id =  id%(num_cores_bs);
+    while(running && period < nperiods){
 
-    while(running && (period < nperiods)){
+        pthread_mutex_lock(&migrate_mutex[id]);
+        while (migrate[id]==0){
+            pthread_cond_wait(&migrate_cond[id], &migrate_mutex[id]);
+        }
+        if (migrate[id] == -1) {
+            migrate_fin[id] = 1;
+            pthread_mutex_unlock(&migrate_mutex[id]);
+            pthread_mutex_lock(&migrate_fin_mutex[id]);
+            pthread_cond_broadcast(&migrate_fin_cond[id]);
+            pthread_mutex_unlock(&migrate_fin_mutex[id]);
+            break;
+        }
+        migrate[id]=0;
+        pthread_mutex_unlock(&migrate_mutex[id]);
 
+        // fixed number of migrated sub tasks
+        for(i=7; i < 14; i++){
+            subtask_fft(i, bs_id);
+        }
 
-
-        subtask_fft(bs_id);
+        pthread_mutex_lock(&migrate_fin_mutex[id]);
+        migrate_fin[id] = 1;
+        pthread_cond_signal(&migrate_fin_cond[id]);
+        pthread_mutex_unlock(&migrate_fin_mutex[id]);
 
         period++;
     }
 
+    migrate_fin[id] = -1;
+    pthread_mutex_lock(&migrate_fin_mutex[id]);
+    pthread_cond_signal(&migrate_fin_cond[id]);
+    pthread_mutex_unlock(&migrate_fin_mutex[id]);
 
     log_notice("Exit extra thread %d",id);
     pthread_exit(NULL);
 }
-
-
 
 
 
@@ -427,8 +464,6 @@ gd_shutdown(int sig)
 int main(int argc, char** argv){
 
 
-    deadline_miss_flag = (int *)malloc(100*sizeof(int));
-
 
     srand(time(NULL));
     int i,j;
@@ -455,7 +490,7 @@ int main(int argc, char** argv){
     var = 1;
 
     char c;
-    while ((c = getopt (argc, argv, "h::M:A:L:s:d:p:S:e:D:Z:N:m:")) != -1) {
+    while ((c = getopt (argc, argv, "h::M:A:L:s:d:p:S:e:D:Z:N:m:R:")) != -1) {
         switch (c) {
             case 'M':
               num_bss = atoi(optarg);
@@ -515,10 +550,6 @@ int main(int argc, char** argv){
               debug_trans = atoi(optarg);
               break;
 
-            case 'm':
-                mcs = atoi(optarg);
-                break;
-
             case 'L':
                 lmax = atoi(optarg);
                 break;
@@ -527,9 +558,17 @@ int main(int argc, char** argv){
                 snr = atoi(optarg);
                 break;
 
+            case 'R':
+                trans_dur_usec = atoi(optarg);
+                break;
+
+            case 'm':
+                mcs = atoi(optarg);
+                break;
+
             case 'h':
             default:
-              printf("%s -h(elp) -M num_bss -A num_ants  -L lmax -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment (0 fixed_mcs /1 var_mcs) -D transport debug(0 or 1) -m MCS\n\nExample usage: sudo ./gd_lte -M 4 -A 1 -L 2000 -s 1000 -d 10 -p 10 -S F -e 1 -D 1 -N 30 -m 20\n",
+              printf("%s -h(elp) -M num_bss -A num_ants  -L lmax -s num_samples -d duration(s) -p priority(1-99) -S sched (R/F/O) -e experiment (0 fixed_mcs /1 var_mcs) -D transport debug(0 or 1) -m MCS\n\nExample usage: sudo ./gd_lte_static2.o -M 4 -A 1 -L 2000 -s 1000 -d 10 -p 10 -S F -e 1 -D 1 -N 30 -m 20 -R 600\n",
                      argv[0]);
               exit(1);
               break;
@@ -542,6 +581,7 @@ int main(int argc, char** argv){
     // calculate the number of cores to support the given radios
     num_cores_bs = ceil((double)lmax/1000);  // each bs
     proc_nthreads = num_cores_bs*num_bss; // total
+    extra_nthreads = proc_nthreads;
 
     assert(num_cores_bs == 1 || num_cores_bs == 2 || num_cores_bs == 3);
     log_notice("Scheduler will run with %d cores for each of %d BSs. Total cores = %d\n",num_cores_bs, num_bss, proc_nthreads)
@@ -585,8 +625,6 @@ int main(int argc, char** argv){
     configure(0, NULL, 0, iqr, iqi, mcs, num_ants, num_bss);
 
     /**************************************************************************/
-
-
     double my_complex *buffer = (double my_complex*) malloc(num_samples*sizeof(double my_complex));
     policy_to_string(sched, tmp_str_a);
     trans_nthreads = num_nodes;
@@ -600,24 +638,34 @@ int main(int argc, char** argv){
     gd_thread_data_t *proc_tdata;
     proc_tdata = malloc(proc_nthreads*sizeof(gd_thread_data_t));
 
+    extra_threads = malloc(extra_nthreads*sizeof(pthread_t));
+    gd_thread_data_t *extra_tdata;
+    extra_tdata = malloc(extra_nthreads*sizeof(gd_thread_data_t));
+
 
     subframe_mutex = (pthread_mutex_t*)malloc(proc_nthreads*sizeof(pthread_mutex_t));
-    state_mutex = (pthread_mutex_t*)malloc(proc_nthreads*sizeof(pthread_mutex_t));
     subframe_cond = (pthread_cond_t*)malloc(proc_nthreads*sizeof(pthread_cond_t));
-    common_time = (struct timespec*)malloc((num_cores_bs)*sizeof(struct timespec));
+    migrate_mutex = (pthread_mutex_t*)malloc(proc_nthreads*sizeof(pthread_mutex_t));
+    migrate_cond = (pthread_cond_t*)malloc(proc_nthreads*sizeof(pthread_cond_t));
+    migrate_fin_mutex = (pthread_mutex_t*)malloc(proc_nthreads*sizeof(pthread_mutex_t));
+    migrate_fin_cond = (pthread_cond_t*)malloc(proc_nthreads*sizeof(pthread_cond_t));
     subframe_avail = (int *)malloc(proc_nthreads*sizeof(int));
-    state = (long *)malloc(proc_nthreads*sizeof(long));
-    migrate_avail = (int *)malloc(proc_nthreads*sizeof(int));
-    migrate_to = (int *)malloc(proc_nthreads*sizeof(int));
-
-
+    migrate = (int *)malloc(proc_nthreads*sizeof(int));
+    migrate_fin = (int *)malloc(proc_nthreads*sizeof(int));
 
     for (i=0; i<proc_nthreads; i++){
         subframe_avail[i] = 0;
         pthread_mutex_init(&subframe_mutex[i], NULL);
-        pthread_mutex_init(&state_mutex[i], NULL);
         pthread_cond_init(&subframe_cond[i], NULL);
+
+        migrate[i] = 0;
+        migrate_fin[i] = 0;
+        pthread_mutex_init(&migrate_mutex[i], NULL);
+        pthread_cond_init(&migrate_cond[i], NULL);
+        pthread_mutex_init(&migrate_fin_mutex[i], NULL);
+        pthread_cond_init(&migrate_fin_cond[i], NULL);
     }
+
 
     /* install a signal handler for proper shutdown */
     signal(SIGQUIT, gd_shutdown);
@@ -638,12 +686,12 @@ int main(int argc, char** argv){
         trans_tdata[i].deadline = usec_to_timespec(500);
         trans_tdata[i].period = usec_to_timespec(1000);
 
-        sprintf(tmp_str, "../log_static/exp%d_samp%d_trans%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d.log",
-            var, num_samples, i, priority, tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs);
+        sprintf(tmp_str, "../log_static2/exp%d_samp%d_trans%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d_delay%d.log",
+            var, num_samples, i, priority, tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs, trans_dur_usec);
         trans_tdata[i].log_handler = fopen(tmp_str, "w");
         trans_tdata[i].sched_prio = priority;
         trans_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
-        CPU_SET( 22 +i, trans_tdata[i].cpuset);
+        CPU_SET( 24 +i, trans_tdata[i].cpuset);
 
         trans_tdata[i].conn_desc.node_id = i;
         trans_tdata[i].conn_desc.node_sock = node_socks[i];
@@ -662,13 +710,13 @@ int main(int argc, char** argv){
         proc_tdata[i].sched_policy = sched;
         proc_tdata[i].deadline = usec_to_timespec(num_cores_bs*1000 - trans_dur_usec);
         proc_tdata[i].period = usec_to_timespec(2000);
-        sprintf(tmp_str, "../log_static/exp%d_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d.log",
-            var, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs);
+        sprintf(tmp_str, "../log_static2/exp%d_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d_delay%d.log",
+            var, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs, trans_dur_usec);
 
         proc_tdata[i].log_handler = fopen(tmp_str, "w");
         proc_tdata[i].sched_prio = priority;
         proc_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
-        CPU_SET( 2+i, proc_tdata[i].cpuset);
+        CPU_SET( 2 +  i, proc_tdata[i].cpuset);
     }
 
     struct timespec t_start;
@@ -686,7 +734,6 @@ int main(int argc, char** argv){
         }
     }
 
-
     log_notice("Starting proc threads");
     for(i= 0; i < proc_nthreads; i++){
         proc_tdata[i].main_start = t_start;
@@ -698,6 +745,32 @@ int main(int argc, char** argv){
     }
 
 
+    log_notice("Starting extra threads");
+    for(i= 0; i < proc_nthreads; i++){
+        extra_tdata[i].ind = i;
+        extra_tdata[i].duration = duration;
+        extra_tdata[i].period = usec_to_timespec(1000);
+        extra_tdata[i].sched_policy = sched;
+        extra_tdata[i].sched_prio = priority;
+        extra_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
+        CPU_SET( 2 + proc_nthreads + i, extra_tdata[i].cpuset);
+        thread_ret = pthread_create(&extra_threads[i], NULL, extra_main, &extra_tdata[i]);
+        if (thread_ret){
+            log_error("Cannot start thread");
+            exit(-1);
+        }
+    }
+
+    // struct timespec t_temp, t_add;
+    // t_add = usec_to_timespec(10000);
+    // clock_gettime(CLOCK_MONOTONIC, &t_temp);
+    // t_temp = timespec_add(&t_temp, &t_add);
+    // clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp, NULL);
+
+
+
+
+
     for (i = 0; i < trans_nthreads; i++)
     {
         pthread_join(trans_threads[i], NULL);
@@ -706,5 +779,10 @@ int main(int argc, char** argv){
     {
         pthread_join(proc_threads[i], NULL);
     }
+    for(i= 0; i < proc_nthreads; i++){
+        pthread_join(extra_threads[i], NULL);
+    }
+
+
     return 0;
 }

@@ -21,13 +21,10 @@ double my_complex* buffer;
 
 
 typedef struct _gd_rng_buff_t{
-int head;
-int tail;
-int nitems;
-int size;
-double my_complex* buff;
-int samples_per_item;
-
+int subframe_id;
+int bs_id;
+int mcs;
+struct timespec t_deadline;
 } gd_rng_buff_t;
 
 typedef struct _gd_thread_data_t {
