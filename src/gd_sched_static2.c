@@ -192,7 +192,7 @@ void* trans_main(void* arg){
             // sleep for remaining time
             clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_next, NULL);
         }else{
-            printf("Transport %d is too slow\n", id);
+            // printf("Transport %d is too slow\n", id);
         }
 
         period ++;
@@ -202,15 +202,15 @@ void* trans_main(void* arg){
     log_notice("Trans thread [%d] ran for %f s", id, ((float) (timespec_to_usec(&t_temp)-abs_period_start))/1e6);
 
 
-    fprintf(tdata->log_handler, "#idx\t\tabs_period\t\tabs_deadline\t\tabs_start\t\tabs_end"
-                   "\t\trel_period\t\trel_start\t\trel_end\t\tduration\t\tmiss\n");
+    // fprintf(tdata->log_handler, "#idx\t\tabs_period\t\tabs_deadline\t\tabs_start\t\tabs_end"
+                   // "\t\trel_period\t\trel_start\t\trel_end\t\tduration\t\tmiss\n");
 
 
     int i;
     for (i=0; i < nperiods; i++){
-        log_timing(tdata->log_handler, &timings[i]);
+        // log_timing(tdata->log_handler, &timings[i]);
     }
-    fclose(tdata->log_handler);
+    // fclose(tdata->log_handler);
     log_notice("Exit trans thread %d", id);
 
     running = 0;
@@ -589,7 +589,7 @@ int main(int argc, char** argv){
 
     FILE *fp;
     i = 0;
-    fp = fopen("mcs.txt", "r");
+    fp = fopen("/home/gkchai/gkchai/win16/garud/src/mcs.txt", "r");
     while (fscanf(fp, "%d\n", &mcs_data[i])!= EOF && i < 95){
         i++;
     }
@@ -608,7 +608,7 @@ int main(int argc, char** argv){
     for (i=0; i<28; i++){
 
         sprintf(filename_iq, "/mnt/hd3/gkchai/ul/iq_mcs=%d_snr=%f_nrb=%d_subf=%d_ch=%d_rx=%d.dat", i, (float)snr, 50, 3, 1, 0);
-        printf("Reading ... %s\n", filename_iq);
+        // printf("Reading ... %s\n", filename_iq);
         file_iq = fopen(filename_iq, "r");
 
         int k = 0;
@@ -686,12 +686,12 @@ int main(int argc, char** argv){
         trans_tdata[i].deadline = usec_to_timespec(500);
         trans_tdata[i].period = usec_to_timespec(1000);
 
-        sprintf(tmp_str, "../log_static2/exp%d_samp%d_trans%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d_delay%d.log",
-            var, num_samples, i, priority, tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs, trans_dur_usec);
-        trans_tdata[i].log_handler = fopen(tmp_str, "w");
+        // sprintf(tmp_str, "../log_static2/exp%d_samp%d_trans%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d_delay%d.log",
+        //     var, num_samples, i, priority, tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs, trans_dur_usec);
+        // trans_tdata[i].log_handler = fopen(tmp_str, "w");
         trans_tdata[i].sched_prio = priority;
         trans_tdata[i].cpuset = malloc(sizeof(cpu_set_t));
-        CPU_SET( 24 +i, trans_tdata[i].cpuset);
+        CPU_SET( (26 +i)%32, trans_tdata[i].cpuset);
 
         trans_tdata[i].conn_desc.node_id = i;
         trans_tdata[i].conn_desc.node_sock = node_socks[i];
@@ -710,8 +710,8 @@ int main(int argc, char** argv){
         proc_tdata[i].sched_policy = sched;
         proc_tdata[i].deadline = usec_to_timespec(num_cores_bs*1000 - trans_dur_usec);
         proc_tdata[i].period = usec_to_timespec(2000);
-        sprintf(tmp_str, "../log_static2/exp%d_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_mcs%d_delay%d.log",
-            var, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, mcs, trans_dur_usec);
+        sprintf(tmp_str, "../log_static2/exp%d_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_snr%d_mcs%d_delay%d.log",
+            var, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, snr, mcs, trans_dur_usec);
 
         proc_tdata[i].log_handler = fopen(tmp_str, "w");
         proc_tdata[i].sched_prio = priority;
@@ -719,30 +719,6 @@ int main(int argc, char** argv){
         CPU_SET( 2 +  i, proc_tdata[i].cpuset);
     }
 
-    struct timespec t_start;
-    // starting time
-    clock_gettime(CLOCK_MONOTONIC, &t_start);
-
-    log_notice("Starting trans threads");
-    // start threads
-    for(i = 0; i < trans_nthreads; i++){
-        trans_tdata[i].main_start = t_start;
-        thread_ret = pthread_create(&trans_threads[i], NULL, trans_main, &trans_tdata[i]);
-        if (thread_ret){
-            log_error("Cannot start thread");
-            exit(-1);
-        }
-    }
-
-    log_notice("Starting proc threads");
-    for(i= 0; i < proc_nthreads; i++){
-        proc_tdata[i].main_start = t_start;
-        thread_ret = pthread_create(&proc_threads[i], NULL, proc_main, &proc_tdata[i]);
-        if (thread_ret){
-            log_error("Cannot start thread");
-            exit(-1);
-        }
-    }
 
 
     log_notice("Starting extra threads");
@@ -761,14 +737,43 @@ int main(int argc, char** argv){
         }
     }
 
+
+    struct timespec t_start;
+    // starting time
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
+
+    log_notice("Starting trans threads");
+    // start threads
+    for(i = 0; i < trans_nthreads; i++){
+        trans_tdata[i].main_start = t_start;
+        thread_ret = pthread_create(&trans_threads[i], NULL, trans_main, &trans_tdata[i]);
+        if (thread_ret){
+            log_error("Cannot start thread");
+            exit(-1);
+        }
+    }
+
+
+
+
+
+    log_notice("Starting proc threads");
+    for(i= 0; i < proc_nthreads; i++){
+        proc_tdata[i].main_start = t_start;
+        thread_ret = pthread_create(&proc_threads[i], NULL, proc_main, &proc_tdata[i]);
+        if (thread_ret){
+            log_error("Cannot start thread");
+            exit(-1);
+        }
+    }
+
+
+
     // struct timespec t_temp, t_add;
     // t_add = usec_to_timespec(10000);
     // clock_gettime(CLOCK_MONOTONIC, &t_temp);
     // t_temp = timespec_add(&t_temp, &t_add);
     // clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t_temp, NULL);
-
-
-
 
 
     for (i = 0; i < trans_nthreads; i++)
@@ -782,7 +787,6 @@ int main(int argc, char** argv){
     for(i= 0; i < proc_nthreads; i++){
         pthread_join(extra_threads[i], NULL);
     }
-
 
     return 0;
 }
