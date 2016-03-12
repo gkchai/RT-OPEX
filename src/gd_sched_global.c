@@ -296,8 +296,8 @@ void* proc_main(void* arg){
         subframe--;
         // shift items in queue starting from top
         // (subframe) to (subframe-1) ..... (1) to (0)
-        i = subframe; j = subframe -1;
-        temp = buff[i];
+        j = subframe -1;
+        temp = buff[subframe];
         while (j>=0){
 
             temp1 = buff[j];
@@ -373,7 +373,6 @@ void* proc_main(void* arg){
     fprintf(tdata->log_handler, "#MCS\ttabs_period\tabs_deadline\tabs_start\tabs_end"
                    "\trel_period\trel_start\trel_end\tduration\tmiss\titer\tkill\tmigrated\n");
 
-    int i;
     for (i=0; i < nperiods; i++){
         proc_log_timing(tdata->log_handler, &timings[i]);
     }
