@@ -18,6 +18,7 @@ static int num_ants;
 static int num_cores_bs;
 
 static pthread_mutex_t *subframe_mutex;
+static pthread_mutex_t test_mutex;
 static pthread_mutex_t *state_mutex;
 static pthread_cond_t *subframe_cond;
 static struct timespec *common_time;
@@ -33,7 +34,7 @@ static int var;
 
 gd_rng_buff_t *rng_buff;
 int *deadline_miss_flag;
-int mcs_data[95];
+int mcs_data[4][1000];
 
 int *migrate_avail, *migrate_to;
 long *state;
@@ -156,7 +157,6 @@ void* trans_main(void* arg){
         if (subframe_avail[bs_id*num_cores_bs + subframe_id] == (num_ants+1)) {
                subframe_avail[bs_id*num_cores_bs + subframe_id] = 1;
         }
-
         pthread_cond_signal(&subframe_cond[bs_id*num_cores_bs + subframe_id]);
         pthread_mutex_unlock(&subframe_mutex[bs_id*num_cores_bs + subframe_id]);
 
@@ -281,22 +281,30 @@ void* proc_main(void* arg){
         t_next = timespec_add(&t_now, &tdata->deadline);
         t_deadline = timespec_add(&t_deadline, &tdata->period);
 
+
         if (var){
-            curr_mcs = mcs_data[period%95];
+            // curr_mcs = mcs_data[(period+4+id)%95];
+            // if (bs_id == 0 || bs_id == 1){
+            //     curr_mcs = 24;
+            // }
+
+            curr_mcs = mcs_data[bs_id%4][period%1000];
+
         }else{
             curr_mcs = mcs;
         }
 
-
+        // pthread_mutex_lock(&state_mutex[bs_id]);
         configure_runtime(curr_mcs, (short*)(iqr + 15360*curr_mcs), (short*)(iqi + 15360*curr_mcs), bs_id);
-
-
+        // configure_runtime(curr_mcs, (short*)(iqr + 15360*curr_mcs), (short*)(iqi + 15360*curr_mcs), id);
         task_fft(bs_id);
         task_demod(bs_id);
-        clock_gettime(CLOCK_MONOTONIC, &t_now);
 
-        // // check if there is enough time to decode else kill
-        if (timespec_to_usec(&t_next) - (50 + timespec_to_usec(&t_now) + 3*decode_time[curr_mcs]) < 0.0){
+        // pthread_mutex_unlock(&state_mutex[bs_id]);
+
+        clock_gettime(CLOCK_MONOTONIC, &t_now);
+        // check if there is enough time to decode else kill
+        if (timespec_to_usec(&t_next) - (30 + timespec_to_usec(&t_now) + 3*decode_time[curr_mcs]) < 0.0){
             kill = 1;
             ret = -1;
         }else{
@@ -305,7 +313,8 @@ void* proc_main(void* arg){
         }
 
 
-        // ret = task_all(bs_id);
+
+        // ret = task_all(id);
 
         clock_gettime(CLOCK_MONOTONIC, &proc_end);
         clock_gettime(CLOCK_MONOTONIC, &t_now);
@@ -494,6 +503,7 @@ int main(int argc, char** argv){
 
     num_nodes = num_bss*num_ants;
 
+
     // calculate the number of cores to support the given radios
     num_cores_bs = ceil((double)lmax/1000);  // each bs
     proc_nthreads = num_cores_bs*num_bss; // total
@@ -503,12 +513,25 @@ int main(int argc, char** argv){
 
 
     FILE *fp;
-    i = 0;
-    fp = fopen("/home/gkchai/gkchai/win16/garud/src/mcs.txt", "r");
-    while (fscanf(fp, "%d\n", &mcs_data[i])!= EOF && i < 95){
-        i++;
+    // i = 0;
+    // fp = fopen("/home/gkchai/gkchai/win16/garud/src/mcs.txt", "r");
+    // while (fscanf(fp, "%d\n", &mcs_data[i])!= EOF && i < 95){
+    //     i++;
+    // }
+    // fclose(fp);
+
+    char filename_mcs[500];
+    j = 0;
+    for (j=0;j<4;j++){
+        i = 0;
+        sprintf(filename_mcs, "/home/gkchai/gkchai/win16/garud/src/bs%d.txt",j);
+        fp = fopen(filename_mcs, "r");
+        while (fscanf(fp, "%d\n", &(mcs_data[j][i]))!= EOF && i < 1000){
+            i++;
+        }
+        fclose(fp);
     }
-    fclose(fp);
+
 
     /**************************************************************************/
     iqr = (short*) malloc(28*1*15360*sizeof(short)); //1=no_of_frame/1000, 2=BW/5MHz
@@ -538,6 +561,8 @@ int main(int argc, char** argv){
 
     // configure the baseband
     configure(0, NULL, 0, iqr, iqi, mcs, num_ants, num_bss);
+    // configure(0, NULL, 0, iqr, iqi, mcs, 2, num_bss);
+    // configure(0, NULL, 0, iqr, iqi, mcs, num_ants, proc_nthreads); // tested
 
     /**************************************************************************/
 
@@ -565,7 +590,7 @@ int main(int argc, char** argv){
     migrate_avail = (int *)malloc(proc_nthreads*sizeof(int));
     migrate_to = (int *)malloc(proc_nthreads*sizeof(int));
 
-
+    pthread_mutex_init(&test_mutex, NULL);
 
     for (i=0; i<proc_nthreads; i++){
         subframe_avail[i] = 0;
@@ -619,6 +644,10 @@ int main(int argc, char** argv){
         proc_tdata[i].period = usec_to_timespec(2000);
         sprintf(tmp_str, "/home/gkchai/gkchai/win16/garud/log_static/exp%d_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_snr%d_mcs%d_delay%d.log",
             var, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, snr, mcs, trans_dur_usec);
+
+        // sprintf(tmp_str, "/home/gkchai/gkchai/win16/garud/log_test/exp%d_samp%d_proc%d_prior%d_sched%s_nbss%d_nants%d_ncores%d_Lmax%d_snr%d_mcs%d_delay%d.log",
+            // var, num_samples, i, priority,tmp_str_a, num_bss, num_ants, num_cores_bs, lmax, snr, mcs, trans_dur_usec);
+
 
         proc_tdata[i].log_handler = fopen(tmp_str, "w");
         proc_tdata[i].sched_prio = priority;

@@ -1,10 +1,12 @@
 *.log
+*.txt
 log/
 log_migrate/
 log_static/
 log_static2/
 log_global/
 log_global2/
+log_test/
 dump/
 ._*
 *.pyc

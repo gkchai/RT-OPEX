@@ -53,7 +53,6 @@ def parallelize(fun, pars, *args):
     pool = Pool(processes=cpu_count()+1) # general heuristic so that if a process is using IO, the rest cpu_count() ones can use all the CPUs
     for j in xrange(len(pars)):
         _args = (j,) + args
-        # pdb.set_trace()
         # tmplist_tomerge[j] = pool.apply_async(fun, args= _args)
         tmplist_tomerge[j] = pool.apply_async(fun, (j,) + args)
     # re = pool.map_async(fun, pars)
@@ -63,7 +62,6 @@ def parallelize(fun, pars, *args):
     timer.tock()
 
     timer.tocktick('merging parellel results')
-    # pdb.set_trace()
 
     results = {} # dict
     for i, _ in enumerate(pars):

@@ -33,7 +33,7 @@ static int var;
 
 gd_rng_buff_t *rng_buff;
 int *deadline_miss_flag;
-int mcs_data[95];
+int mcs_data[4][1000];
 
 typedef struct migrate_t {
     int start_id; //inclusive
@@ -258,7 +258,7 @@ void* proc_main(void* arg){
     int deadline_miss=0;
 
     long time_deadline, proc_actual_time, avail_time;
-    struct timespec t_temp, t_now;
+    struct timespec t_temp, t_now, t_temp1;
 
     int bs_id = (int)(id/num_cores_bs);
     int subframe_id =  id%(num_cores_bs);
@@ -297,7 +297,11 @@ void* proc_main(void* arg){
         t_deadline = timespec_add(&t_deadline, &tdata->period);
 
         if (var){
-            curr_mcs = mcs_data[period%95];
+            // curr_mcs = mcs_data[(period+4+id)%95];
+            // if (bs_id == 0 || bs_id == 1){
+            //     curr_mcs = 24;
+            // }
+            curr_mcs = mcs_data[bs_id%4][period%1000];
         }else{
             curr_mcs = mcs;
         }
@@ -315,6 +319,8 @@ void* proc_main(void* arg){
         int tasksRemain = 14;
         int cur_start_id =0;
         // printf("==========START\n");
+
+        // clock_gettime(CLOCK_MONOTONIC, &t_temp);
 
         pthread_mutex_lock(&state_mutex[0]);
 
@@ -352,6 +358,11 @@ void* proc_main(void* arg){
          }
 
         pthread_mutex_unlock(&state_mutex[0]);
+        // clock_gettime(CLOCK_MONOTONIC, &t_temp1);
+        // printf("%ld\n", timespec_to_usec(&t_temp1) - timespec_to_usec(&t_temp));
+
+
+
 
         // printf("==========END ... offloaded:%d\n",cur_start_id);
          // printf("Migrating %d subtasks\n", cur_start_id);
@@ -372,7 +383,7 @@ void* proc_main(void* arg){
         clock_gettime(CLOCK_MONOTONIC, &t_now);
         // // check if there is enough time to decode else kill
 
-        if (timespec_to_usec(&t_next) - (50 + timespec_to_usec(&t_now) + 3*decode_time[curr_mcs]) < 0.0){
+        if (timespec_to_usec(&t_next) - (30 + timespec_to_usec(&t_now) + 3*decode_time[curr_mcs]) < 0.0){
             kill = 1;
             ret = -1;
         }else{
@@ -401,6 +412,9 @@ void* proc_main(void* arg){
             int rvd_task = 0;
             while( timespec_to_usec(&t_now) <=  timespec_to_usec(&t_next)-50 ) {
                 if (migrate_avail[id].count > 0) {
+
+                    // clock_gettime(CLOCK_MONOTONIC, &t_temp);
+
                     rvd_task = 1;
                     int i = 0;
                     // printf("curr_id = %d, source_id = %d, start_id = %d, count = %d\n", id, migrate_avail[id].source_bs_id, migrate_avail[id].start_id, migrate_avail[id].count);
@@ -408,6 +422,9 @@ void* proc_main(void* arg){
                         subtask_fft(i, migrate_avail[id].source_bs_id);
                     }
                     migrate_avail[id].count=0;
+
+
+
                 }
 
                 clock_gettime(CLOCK_MONOTONIC, &t_now);
@@ -604,6 +621,7 @@ int main(int argc, char** argv){
 
     num_nodes = num_bss*num_ants;
 
+
     // calculate the number of cores to support the given radios
     num_cores_bs = ceil((double)lmax/1000);  // each bs
     proc_nthreads = num_cores_bs*num_bss; // total
@@ -613,12 +631,25 @@ int main(int argc, char** argv){
 
 
     FILE *fp;
-    i = 0;
-    fp = fopen("/home/gkchai/gkchai/win16/garud/src/mcs.txt", "r");
-    while (fscanf(fp, "%d\n", &mcs_data[i])!= EOF && i < 95){
-        i++;
+    // i = 0;
+    // fp = fopen("/home/gkchai/gkchai/win16/garud/src/mcs.txt", "r");
+    // while (fscanf(fp, "%d\n", &mcs_data[i])!= EOF && i < 95){
+    //     i++;
+    // }
+    // fclose(fp);
+    char filename_mcs[500];
+    j = 0;
+    for (j=0;j<4;j++){
+        i = 0;
+        sprintf(filename_mcs, "/home/gkchai/gkchai/win16/garud/src/bs%d.txt",j);
+        fp = fopen(filename_mcs, "r");
+        while (fscanf(fp, "%d\n", &(mcs_data[j][i]))!= EOF && i < 1000){
+            i++;
+        }
+        fclose(fp);
     }
-    fclose(fp);
+
+
 
     /**************************************************************************/
     iqr = (short*) malloc(28*1*15360*sizeof(short)); //1=no_of_frame/1000, 2=BW/5MHz
@@ -648,6 +679,8 @@ int main(int argc, char** argv){
 
     // configure the baseband
     configure(0, NULL, 0, iqr, iqi, mcs, num_ants, num_bss);
+    // configure(0, NULL, 0, iqr, iqi, mcs, 2, num_bss);
+    // configure(0, NULL, 0, iqr, iqi, mcs, 1, num_bss);
 
     /**************************************************************************/
 

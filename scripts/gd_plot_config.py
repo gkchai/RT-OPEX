@@ -36,7 +36,7 @@ fmts = ['-o', '--o', '-s', '--s', '-x', '--x', '-v', '--v']
 ls = ['-', '--', '-', '--', '-', '--', '-', '--']
 ms = ['o', 'o', 's', 's', 'v', 'v', 'v', 'v']
 colors = ['b', 'g', 'r', 'y']
-
+colors_e = ['0.2', 'blue', 'magenta', 'red', 'brown', 'orange']
 
 '''
 best -- 0

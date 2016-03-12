@@ -32,7 +32,6 @@ int subframe=3;
 unsigned char harq_pid;
 // LTE_DL_FRAME_PARMS *frame_parms;
 uint8_t cooperation_flag = 0; //0 no cooperation, 1 delay diversity, 2 Alamouti
-// uint32_t UL_alloc_pdu;
 uint8_t n_rx;
 uint8_t *var;
 
@@ -85,7 +84,6 @@ void subtask_fft(int l, int id){
     if (l < subframe*PHY_vars_UE[id]->lte_frame_parms.symbols_per_tti){
         l = subframe*PHY_vars_UE[id]->lte_frame_parms.symbols_per_tti + l;
     }
-
 
     slot_fep_ul(&PHY_vars_eNB[id]->lte_frame_parms,
                 &PHY_vars_eNB[id]->lte_eNB_common_vars,
@@ -621,7 +619,7 @@ void configure(int argc, char **argv, int trials, short* iqr, short* iqi, int mm
                     int round = 0;
 
                     harq_pid = subframe2harq_pid(&PHY_vars_UE[loop]->lte_frame_parms,PHY_vars_UE[loop]->frame_tx,subframe);
-                     // fflush(stdout);
+                    // fflush(stdout);
 
                     PHY_vars_eNB[loop]->ulsch_eNB[0]->harq_processes[harq_pid]->round=round;
                     PHY_vars_UE[loop]->ulsch_ue[0]->harq_processes[harq_pid]->round=round;
@@ -659,7 +657,15 @@ void configure(int argc, char **argv, int trials, short* iqr, short* iqi, int mm
 //configure the processing in runtime
 void configure_runtime(int new_mcs, short* iqr, short* iqi, int id){
 
-
+  uint32_t UL_alloc_pdu;
+                      ((DCI0_10MHz_FDD_t*)&UL_alloc_pdu)->type    = 0;
+                      ((DCI0_10MHz_FDD_t*)&UL_alloc_pdu)->rballoc = computeRIV(PHY_vars_eNB[id]->lte_frame_parms.N_RB_UL,0,50);// 12 RBs from position 8
+                      // printf("nb_rb %d/%d, rballoc %d (dci %x)\n",nb_rb,PHY_vars_eNB[id]->lte_frame_parms.N_RB_UL,((DCI0_10MHz_FDD_t*)&UL_alloc_pdu)->rballoc,*(uint32_t *)&UL_alloc_pdu);
+                      ((DCI0_10MHz_FDD_t*)&UL_alloc_pdu)->mcs     = new_mcs;
+                      ((DCI0_10MHz_FDD_t*)&UL_alloc_pdu)->ndi     = 1;
+                      ((DCI0_10MHz_FDD_t*)&UL_alloc_pdu)->TPC     = 0;
+                      ((DCI0_10MHz_FDD_t*)&UL_alloc_pdu)->cqi_req = 0&1;
+                      ((DCI0_10MHz_FDD_t*)&UL_alloc_pdu)->cshift  = 0;
 
 
 
@@ -690,18 +696,16 @@ void configure_runtime(int new_mcs, short* iqr, short* iqi, int id){
                                      CBA_RNTI,
                                      0);
 
+                    // does not help
+                    // int round = 0;
 
+                    // harq_pid = subframe2harq_pid(&PHY_vars_UE[id]->lte_frame_parms,PHY_vars_UE[id]->frame_tx,subframe);
+                    //  // fflush(stdout);
 
-
- //                    int round = 0;
-
- //                    harq_pid = subframe2harq_pid(&PHY_vars_UE[id]->lte_frame_parms,PHY_vars_UE[id]->frame_tx,subframe);
- //                     // fflush(stdout);
-
- //                    PHY_vars_eNB[id]->ulsch_eNB[0]->harq_processes[harq_pid]->round=round;
- //                    PHY_vars_UE[id]->ulsch_ue[0]->harq_processes[harq_pid]->round=round;
- //                    PHY_vars_eNB[id]->ulsch_eNB[0]->harq_processes[harq_pid]->rvidx = round>>1;
- //                    PHY_vars_UE[id]->ulsch_ue[0]->harq_processes[harq_pid]->rvidx = round>>1;
+                    // PHY_vars_eNB[id]->ulsch_eNB[0]->harq_processes[harq_pid]->round=round;
+                    // PHY_vars_UE[id]->ulsch_ue[0]->harq_processes[harq_pid]->round=round;
+                    // PHY_vars_eNB[id]->ulsch_eNB[0]->harq_processes[harq_pid]->rvidx = round>>1;
+                    // PHY_vars_UE[id]->ulsch_ue[0]->harq_processes[harq_pid]->rvidx = round>>1;
 
 
 

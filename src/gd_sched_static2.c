@@ -34,7 +34,7 @@ static int debug_trans = 1;
 static int mcs;
 static int var;
 
-int mcs_data[95];
+int mcs_data[4][1000];
 
 int *migrate;
 int *migrate_fin;
@@ -285,7 +285,11 @@ void* proc_main(void* arg){
         t_deadline = timespec_add(&t_deadline, &tdata->period);
 
         if (var){
-            curr_mcs = mcs_data[period%95];
+            // curr_mcs = mcs_data[(period+4+id)%95];
+            // if (bs_id == 0 || bs_id == 1){
+            //     curr_mcs = 24;
+            // }
+            curr_mcs = mcs_data[bs_id%4][period%1000];
         }else{
             curr_mcs = mcs;
         }
@@ -293,30 +297,51 @@ void* proc_main(void* arg){
 
         configure_runtime(curr_mcs, (short*)(iqr + 15360*curr_mcs), (short*)(iqi + 15360*curr_mcs), bs_id);
 
+        // tested 2us
+        // clock_gettime(CLOCK_MONOTONIC, &t_temp);
+
         pthread_mutex_lock(&migrate_mutex[id]);
         migrate[id] = 1;
         pthread_cond_signal(&migrate_cond[id]);
         pthread_mutex_unlock(&migrate_mutex[id]);
+        // clock_gettime(CLOCK_MONOTONIC, &t_now);
+        // printf("mutex time [%d, %d] = %ld\n", id, bs_id, timespec_to_usec(&t_now) - timespec_to_usec(&t_temp));
 
+
+
+        // clock_gettime(CLOCK_MONOTONIC, &t_temp);
+
+        // tested fft correct
         for (i=0; i <7; i++){
             subtask_fft(i, bs_id);
         }
 
+        // clock_gettime(CLOCK_MONOTONIC, &t_now);
+        // printf("subfft time [%d, %d] = %ld\n", id, bs_id, timespec_to_usec(&t_now) - timespec_to_usec(&t_temp));
+
+
+        // clock_gettime(CLOCK_MONOTONIC, &t_temp);
         // task_fft(bs_id);
+        // clock_gettime(CLOCK_MONOTONIC, &t_now);
+        // printf("fft time [%d, %d] = %ld\n", id, bs_id, timespec_to_usec(&t_now) - timespec_to_usec(&t_temp));
+
+
 
         clock_gettime(CLOCK_MONOTONIC, &t_temp);
-        pthread_mutex_lock(&migrate_fin_mutex[id]);
-        while (migrate_fin[id]==0){
-            // pthread_cond_timedwait(&migrate_fin_cond[id], &migrate_fin_mutex[id], &t_next);
-            pthread_cond_wait(&migrate_fin_cond[id], &migrate_fin_mutex[id]);
-        }
-        if (migrate_fin[id] ==-1){
-            pthread_mutex_unlock(&migrate_fin_mutex[id]);
-            break;
-        }
-        migrate_fin[id] = 0;
-        pthread_mutex_unlock(&migrate_fin_mutex[id]);
-        clock_gettime(CLOCK_MONOTONIC, &t_now);
+        // pthread_mutex_lock(&migrate_fin_mutex[id]);
+        // while (migrate_fin[id]==0){
+        //     // pthread_cond_timedwait(&migrate_fin_cond[id], &migrate_fin_mutex[id], &t_next);
+        //     pthread_cond_wait(&migrate_fin_cond[id], &migrate_fin_mutex[id]);
+        // }
+        // if (migrate_fin[id] ==-1){
+        //     pthread_mutex_unlock(&migrate_fin_mutex[id]);
+        //     break;
+        // }
+        // migrate_fin[id] = 0;
+        // pthread_mutex_unlock(&migrate_fin_mutex[id]);
+
+
+        // clock_gettime(CLOCK_MONOTONIC, &t_now);
         // printf("wait time [%d, %d] = %ld, tnext = %lu, now = %lu\n", id, bs_id, timespec_to_usec(&t_now) - timespec_to_usec(&t_temp), timespec_to_usec(&t_next), timespec_to_usec(&t_now));
 
 
@@ -325,7 +350,7 @@ void* proc_main(void* arg){
         clock_gettime(CLOCK_MONOTONIC, &t_now);
 
         // // check if there is enough time to decode else kill
-        if (timespec_to_usec(&t_next) - (50 + timespec_to_usec(&t_now) + 3*decode_time[curr_mcs]) < 0.0){
+        if (timespec_to_usec(&t_next) - (30 + timespec_to_usec(&t_now) + 3*decode_time[curr_mcs]) < 0.0){
             kill = 1;
             ret = -1;
         }else{
@@ -588,12 +613,18 @@ int main(int argc, char** argv){
 
 
     FILE *fp;
-    i = 0;
-    fp = fopen("/home/gkchai/gkchai/win16/garud/src/mcs.txt", "r");
-    while (fscanf(fp, "%d\n", &mcs_data[i])!= EOF && i < 95){
-        i++;
+
+    char filename_mcs[500];
+    j = 0;
+    for (j=0;j<4;j++){
+        i = 0;
+        sprintf(filename_mcs, "/home/gkchai/gkchai/win16/garud/src/bs%d.txt",j);
+        fp = fopen(filename_mcs, "r");
+        while (fscanf(fp, "%d\n", &(mcs_data[j][i]))!= EOF && i < 1000){
+            i++;
+        }
+        fclose(fp);
     }
-    fclose(fp);
 
     /**************************************************************************/
     iqr = (short*) malloc(28*1*15360*sizeof(short)); //1=no_of_frame/1000, 2=BW/5MHz
@@ -623,6 +654,8 @@ int main(int argc, char** argv){
 
     // configure the baseband
     configure(0, NULL, 0, iqr, iqi, mcs, num_ants, num_bss);
+    // configure(0, NULL, 0, iqr, iqi, mcs, 2, num_bss);
+    // configure(0, NULL, 0, iqr, iqi, mcs, 1, num_bss);
 
     /**************************************************************************/
     double my_complex *buffer = (double my_complex*) malloc(num_samples*sizeof(double my_complex));
