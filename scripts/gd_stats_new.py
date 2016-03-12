@@ -71,13 +71,14 @@ def time_analysis(arrp, rtt):
 
         if item['mcs'] >= 0:
 
-            thru +=  lte_utils.mcs_to_throughput(item['mcs'])*(1 if ((item['iter'] < 5) and (item['iter'] > -1) and (item['duration'] < (2000-rtt))) else 0)
+            curr_thru =  lte_utils.mcs_to_throughput(item['mcs'])*(1 if ((item['iter'] < 5) and (item['iter'] > -1) and (item['duration'] < (2000-rtt))) else 0)
+            thru += curr_thru
             # miss_rate += (1 if ((item['duration'] > (2000-rtt) and item['iter'] < 5) or (item['iter'] == -1)) else 0)
             miss_rate += (1 if ((item['duration'] > (2000-rtt) ) or (item['iter'] == -1)) else 0)
             nitem += 1
         # if miss_rate > 0:
         #     pdb.set_trace()
-            thru_all.append(thru)
+            thru_all.append(curr_thru)
 
     # thru = thru*1.0/len(arrp)
     # miss_rate = miss_rate*1.0/len(arrp)

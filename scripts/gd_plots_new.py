@@ -58,7 +58,7 @@ if __name__ == '__main__':
                 #     ress[exp_str][0] = 0
 
                 y.append(ress[exp_str][0])
-                z.append(ress[exp_str][1])
+                z.append(ress[exp_str][2])
             y1.append(y[:])
             y11.append(z[:])
 
@@ -68,7 +68,7 @@ if __name__ == '__main__':
             exp_str = 'exp%s_var%d_nbss%d_nants%d_ncores%d_Lmax%d_snr%d_mcs%d_delay%d'%('global', var,num_bss, num_ants, 16, lmax, snr, mcs, rtt)
             ress = utils.read_pickle('../dump/ress11_%s.pkl'%(exp_str))
             y.append(ress[exp_str][0])
-            z.append(ress[exp_str][1])
+            z.append(ress[exp_str][2])
         y1.append(y[:])
         y11.append(z[:])
 
@@ -212,6 +212,36 @@ if __name__ == '__main__':
     ##############################
     # Plot 4
     # cdf of thrroughput
+
+    fig = plt.figure(figsize=(8*1.7, 3*1.7))
+    ax = plt.gca()
+
+    # for ix, exp in enumerate(exp_range):
+    for ix, exp in enumerate(exp_range_str):
+        # plt.plot(rtt_range, y1[ix], ls[ix], color=colors_e[ix], mfc='none', label=exp_range_str[ix], ms=14, mec=colors_e[ix], linewidth=4, markeredgewidth=4)
+
+        # if exp == 'static' or exp == 'static2':
+        plt.plot(np.arange(0,35,0.2), y11[ix][8], ls[ix], color=colors_e[ix], mfc='none', label=exp_range_str[ix], linewidth=4)
+
+    # plt.grid()
+    # ax.set_yscale('log')
+    plt.xlabel('Throughput (Mbps)')
+    # plt.xlabel('MCS')
+    plt.ylabel('CDF')
+    plt.ylim(0,1)
+    plt.xlim(0, 35)
+    nospines(ax)
+
+    # lg=ax.legend(loc='lower right',numpoints=1, fontsize=20)
+    lg=ax.legend(loc='upper left',numpoints=1, fontsize=20)
+    if lg is not None:
+        lg.draw_frame(False)
+
+    plt.grid()
+    pp = PdfPages('../plot/thru_rtt_all_var_bs%d.pdf'%num_bss)
+    pp.savefig(bbox_inches='tight',  dpi=300)
+    pp.close()
+    plt.close(fig)
 
 
 

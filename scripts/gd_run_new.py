@@ -12,8 +12,8 @@ from datetime import datetime
 # mcs_range = [5, 10, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]
 mcs_range = [20]
 # exp_range = ['static', 'static2', 'migrate', 'global']
-exp_range = ['static', 'static2','migrate', 'global']
-exp_range = ['global']
+exp_range = ['static', 'static2','migrate']
+# exp_range = ['global']
 samples = 15000
 prior = 10
 sched = 'SCHED_FIFO'

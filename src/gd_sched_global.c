@@ -267,6 +267,10 @@ void* proc_main(void* arg){
     int ret= 0;
     int bs_id;
     int curr_mcs = 0;
+    gd_rng_buff_t temp, temp1;
+    int i = 0;
+    int j = 0;
+
     while(running && (period < nperiods)){
 
 
@@ -282,11 +286,34 @@ void* proc_main(void* arg){
             break;
         }
 
-        subframe_avail --;
-        curr_mcs = buff[subframe_avail].mcs;
-        bs_id = buff[subframe_avail].bs_id;
-        t_deadline = buff[subframe_avail].t_deadline;
+
+        // pop the first item
+        curr_mcs = buff[0].mcs;
+        bs_id = buff[0].bs_id;
+        t_deadline = buff[0].t_deadline;
         t_next = t_deadline;
+
+        subframe--;
+        // shift items in queue starting from top
+        // (subframe) to (subframe-1) ..... (1) to (0)
+        i = subframe; j = subframe -1;
+        temp = buff[i];
+        while (j>=0){
+
+            temp1 = buff[j];
+            buff[j] = temp;
+            temp = temp1;
+            j = j -1;
+        }
+
+
+        // ++++++++ the following is for FIFO +++++++++
+        // subframe_avail --;
+        // curr_mcs = buff[subframe_avail].mcs;
+        // bs_id = buff[subframe_avail].bs_id;
+        // t_deadline = buff[subframe_avail].t_deadline;
+        // t_next = t_deadline;
+        // +++++++++++++++++++++++++++++++++++++++++
 
         // printf("Dequeued proc %d mcs = %d bs_id = %d subframe_avail = %d\n", id, curr_mcs, bs_id, subframe_avail);
         pthread_mutex_unlock(&queue_mutex);
